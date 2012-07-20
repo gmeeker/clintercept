@@ -29,13 +29,29 @@
 #ifndef _CLINT_H_
 #define _CLINT_H_
 
+#if defined(WIN32)
+
+#include <tchar.h>
+typedef TCHAR ClintPathChar;
+
+#else
+
+typedef char ClintPathChar;
+
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+void clint_opencl_init();
+void clint_opencl_shutdown();
 void* clint_opencl_load(void);
 void* clint_opencl_sym(void *dll, const char *sym);
 void clint_opencl_unload(void *dll);
+
+void clint_opencl_enter();
+void clint_opencl_exit();
 
 #ifdef __cplusplus
 }

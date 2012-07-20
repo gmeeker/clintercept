@@ -27,6 +27,7 @@
 */
 
 #include "clint_log.h"
+#include "clint_config.h"
 #include "clint_opencl_types.h"
 
 #include <stdio.h>
@@ -47,6 +48,7 @@
 
 #ifndef CL_VERSION_1_2
 typedef intptr_t            cl_device_partition_property;
+typedef cl_bitfield         cl_device_affinity_domain;
 #define clint_string_device_affinity_domain clint_string_token
 #define clint_string_device_partition_property clint_string_token
 #endif
@@ -99,6 +101,9 @@ typedef intptr_t            cl_device_partition_property;
 #define DEVICE_ARGS(a) CL_DEVICE_##a, "CL_DEVICE_" #a
 #define PLATFORM_ARGS(a) CL_PLATFORM_##a, "CL_PLATFORM_" #a
 
+static FILE *g_clint_log_fp;
+static int g_clint_log_fp_close;
+
 #ifdef __APPLE__
 
 #include <CoreFoundation/CoreFoundation.h>
@@ -114,10 +119,14 @@ void clint_log(const char *fmt, ...)
   va_list ap;
 
   va_start(ap, fmt);
-  str = CFStringCreateWithCString(kCFAllocatorDefault, fmt, kCFStringEncodingASCII);
-  if (str) {
-    NSLogv(str, ap);
-    CFRelease(str);
+  if (g_clint_log_fp != NULL) {
+    vfprintf(g_clint_log_fp, fmt, ap);
+  } else {
+    str = CFStringCreateWithCString(kCFAllocatorDefault, fmt, kCFStringEncodingASCII);
+    if (str != NULL) {
+      NSLogv(str, ap);
+      CFRelease(str);
+    }
   }
   va_end(ap);
 }
@@ -132,11 +141,15 @@ void clint_log(const char *fmt, ...)
   char tmp[8];
 
   va_start(ap, fmt);
-  size = (size_t)vsprintf_s(tmp, sizeof(tmp), fmt, ap) + 1;
-  buf = (char*)malloc(size);
-  vsprintf_s(buf, size, fmt, ap);
-  OutputDebugStringA(buf);
-  free(buf);
+  if (g_clint_log_fp != NULL) {
+    vfprintf(g_clint_log_fp, fmt, ap);
+  } else {
+    size = (size_t)vsprintf_s(tmp, sizeof(tmp), fmt, ap) + 1;
+    buf = (char*)malloc(size);
+    vsprintf_s(buf, size, fmt, ap);
+    OutputDebugStringA(buf);
+    free(buf);
+  }
   va_end(ap);
 }
 
@@ -145,13 +158,61 @@ void clint_log(const char *fmt, ...)
 void clint_log(const char *fmt, ...)
 {
   va_list ap;
+  FILE *fp = g_clint_log_fp;
+  if (fp == NULL)
+    fp = stderr;
 
   va_start(ap, fmt);
-  vfprintf(stderr, fmt, ap);
+  vfprintf(fp, fmt, ap);
   va_end(ap);
 }
 
 #endif
+
+void clint_log_init(const char *filename)
+{
+  clint_log_shutdown();
+  if (filename != NULL) {
+    g_clint_log_fp = fopen(filename, "w");
+    g_clint_log_fp_close = 1;
+  }
+}
+
+void clint_log_init_fp(FILE *fp)
+{
+  clint_log_shutdown();
+  g_clint_log_fp = fp;
+  g_clint_log_fp_close = 0;
+}
+
+void clint_log_shutdown()
+{
+  if (g_clint_log_fp != NULL && g_clint_log_fp_close) {
+    fclose(g_clint_log_fp);
+    g_clint_log_fp = NULL;
+    g_clint_log_fp_close = 0;
+  }
+}
+
+void clint_log_abort()
+{
+  if (clint_get_config(CLINT_ABORT)) {
+    abort();
+  }
+}
+
+void clint_log_describe()
+{
+  int i;
+
+  for (i = 0; i < CLINT_MAX; i++) {
+    if (i != CLINT_ENABLED) {
+      if (clint_get_config(i)) {
+        clint_log(clint_config_describe(i));
+      }
+    }
+  }
+}
 
 typedef long long clint_log_int_t;
 
@@ -160,20 +221,19 @@ static void clint_log_device_raw(cl_device_id device, cl_device_info param, cons
   clint_log("\tdevice[%p]: %s = %s\n", device, name, value);
 }
 
-static clint_log_int_t clint_get_device_int(cl_device_id device, cl_device_info param, const char *name)
+static cl_bool clint_get_device_int(cl_device_id device, cl_device_info param, const char *name, clint_log_int_t *v)
 {
   cl_int err;
   size_t size;
-  clint_log_int_t v;
 
-  if ((err = clGetDeviceInfo(device, param, sizeof(v), &v, &size)) == CL_SUCCESS) {
-    if (size > sizeof(v)) {
+  if ((err = clGetDeviceInfo(device, param, sizeof(*v), v, &size)) == CL_SUCCESS) {
+    if (size > sizeof(*v)) {
       clint_log("\tdevice[%p]: %s unexpected size: %lu\n", device, name, (unsigned long)size);
     }
-    return v;
+    return CL_TRUE;
   } else {
     clint_log("\tdevice[%p]: %s: %s\n", device, name, clint_string_error(err));
-    return 0;
+    return CL_FALSE;
   }
 }
 
@@ -234,13 +294,13 @@ static void clint_log_device_partition(cl_device_id device, cl_device_info param
       if ((err = clGetDeviceInfo(device, param, size, buf, NULL)) == CL_SUCCESS) {
         size /= sizeof(cl_device_partition_property);
         for (i = 0; i < size; i++) {
-          clint_log("device[%p]: %s[%ld] = %s\n", device, name, (unsigned long)i, clint_string_device_partition_property(buf[i]));
+          clint_log("\tdevice[%p]: %s[%ld] = %s\n", device, name, (unsigned long)i, clint_string_device_partition_property(buf[i]));
         }
       }
       free(buf);
     }
   } else {
-    clint_log("device[%p]: %s: %s\n", device, name, clint_string_error(err));
+    clint_log("\tdevice[%p]: %s: %s\n", device, name, clint_string_error(err));
   }
 }
 
@@ -262,8 +322,85 @@ static void clint_log_platform_string(cl_platform_id platform, cl_platform_info 
   }
 }
 
-void clint_log_device(cl_device_id device)
+void clint_log_device_formats(cl_platform_id platform, cl_device_id device)
 {
+   cl_context_properties properties[16];
+   cl_image_format *formatList;
+   cl_context context;
+   cl_int err;
+   cl_uint numFormats;
+   int i, j;
+
+   i = 0;
+   properties[i++] = (cl_context_properties)CL_CONTEXT_PLATFORM;
+   properties[i++] = (cl_context_properties)platform;
+   properties[i++] = (cl_context_properties)0;
+
+   context = clCreateContext(properties, 1, &device, NULL, NULL, &err);
+   if (err == CL_SUCCESS) {
+     cl_mem_flags flags;
+     cl_mem_object_type type;
+     for (i = 0; i < 3; i++) {
+       switch (i) {
+       default:
+       case 0:
+         flags = CL_MEM_READ_ONLY;
+         break;
+       case 1:
+         flags = CL_MEM_WRITE_ONLY;
+         break;
+       case 2:
+         flags = CL_MEM_READ_WRITE;
+         break;
+       }
+       for (j = 0; j < 2; j++) {
+         switch (j) {
+         default:
+         case 0:
+           type = CL_MEM_OBJECT_IMAGE2D;
+           break;
+         case 1:
+           type = CL_MEM_OBJECT_IMAGE3D;
+           break;
+         }
+         clint_log("\tdevice[%p]: %s %s.\n",
+                   device,
+                   clint_string_mem_flags(flags),
+                   clint_string_mem_object_type(type));
+         if ((err = clGetSupportedImageFormats(context, flags, type, 0, NULL, &numFormats)) == CL_SUCCESS) {
+           clint_log("\tdevice[%p]: Found %d format(s).\n", device, numFormats);
+           if (numFormats > 0) {
+             formatList = (cl_image_format*)malloc(numFormats * sizeof(cl_image_format));
+             if ((err = clGetSupportedImageFormats(context, flags, type, numFormats, formatList, NULL)) == CL_SUCCESS) {
+               cl_uint k;
+               for (k = 0; k < numFormats; k++) {
+                 clint_log("\tdevice[%p]: %s\t%s\n",
+                           device,
+                           clint_string_channel_order(formatList[k].image_channel_order),
+                           clint_string_channel_type(formatList[k].image_channel_data_type));
+               }
+             } else {
+               clint_log("\tdevice[%p]: Unable to enumerate the formats: %s\n",
+                         device, clint_string_error(err));
+               free(formatList);
+             }
+             free(formatList);
+           }
+         } else {
+           clint_log("\tdevice[%p]: Unable to query the number of formats: %s\n", device, clint_string_error(err));
+         }
+       }
+     }
+     clReleaseContext(context);
+   } else {
+     clint_log("\tdevice[%p]: Unable to create context: %s\n", device, clint_string_error(err));
+   }
+}
+
+void clint_log_device(cl_platform_id platform, cl_device_id device)
+{
+  clint_log_int_t value_int;
+
   clint_log_device_string(device, DEVICE_ARGS(NAME));
   clint_log_device_string(device, DEVICE_ARGS(VENDOR));
   clint_log_device_string(device, DEVICE_ARGS(PROFILE));
@@ -272,22 +409,36 @@ void clint_log_device(cl_device_id device)
   clint_log_device_string(device, DEVICE_ARGS(OPENCL_C_VERSION));
   clint_log_device_string(device, LOG_ARGS(CL_DRIVER_VERSION));
 
-  clint_log_device_raw(device, DEVICE_ARGS(TYPE),
-                       clint_string_device_type(clint_get_device_int(device, DEVICE_ARGS(TYPE))));
+  if (clint_get_device_int(device, DEVICE_ARGS(TYPE), &value_int)) {
+    clint_log_device_raw(device, DEVICE_ARGS(TYPE),
+                         clint_string_device_type((cl_device_type)value_int));
+  }
   clint_log_device_int(device, DEVICE_ARGS(PLATFORM), CL_TRUE);
-  clint_log_device_raw(device, DEVICE_ARGS(EXECUTION_CAPABILITIES),
-                       clint_string_device_exec_capabilities(clint_get_device_int(device, DEVICE_ARGS(EXECUTION_CAPABILITIES))));
-  clint_log_device_raw(device, DEVICE_ARGS(GLOBAL_MEM_CACHE_TYPE),
-                       clint_string_device_mem_cache_type(clint_get_device_int(device, DEVICE_ARGS(GLOBAL_MEM_CACHE_TYPE))));
-  clint_log_device_raw(device, DEVICE_ARGS(LOCAL_MEM_TYPE),
-                       clint_string_device_local_mem_type(clint_get_device_int(device, DEVICE_ARGS(LOCAL_MEM_TYPE))));
+  if (clint_get_device_int(device, DEVICE_ARGS(EXECUTION_CAPABILITIES), &value_int)) {
+    clint_log_device_raw(device, DEVICE_ARGS(EXECUTION_CAPABILITIES),
+                         clint_string_device_exec_capabilities((cl_device_exec_capabilities)value_int));
+  }
+  if (clint_get_device_int(device, DEVICE_ARGS(GLOBAL_MEM_CACHE_TYPE), &value_int)) {
+    clint_log_device_raw(device, DEVICE_ARGS(GLOBAL_MEM_CACHE_TYPE),
+                         clint_string_device_mem_cache_type((cl_device_mem_cache_type)value_int));
+  }
+  if (clint_get_device_int(device, DEVICE_ARGS(LOCAL_MEM_TYPE), &value_int)) {
+    clint_log_device_raw(device, DEVICE_ARGS(LOCAL_MEM_TYPE),
+                         clint_string_device_local_mem_type((cl_device_local_mem_type)value_int));
+  }
 
-  clint_log_device_raw(device, DEVICE_ARGS(SINGLE_FP_CONFIG),
-                       clint_string_device_fp_config(clint_get_device_int(device, DEVICE_ARGS(SINGLE_FP_CONFIG))));
-  clint_log_device_raw(device, DEVICE_ARGS(DOUBLE_FP_CONFIG),
-                       clint_string_device_fp_config(clint_get_device_int(device, DEVICE_ARGS(DOUBLE_FP_CONFIG))));
-  clint_log_device_raw(device, DEVICE_ARGS(HALF_FP_CONFIG),
-                       clint_string_device_fp_config(clint_get_device_int(device, DEVICE_ARGS(HALF_FP_CONFIG))));
+  if (clint_get_device_int(device, DEVICE_ARGS(SINGLE_FP_CONFIG), &value_int)) {
+    clint_log_device_raw(device, DEVICE_ARGS(SINGLE_FP_CONFIG),
+                         clint_string_device_fp_config((cl_device_fp_config)value_int));
+  }
+  if (clint_get_device_int(device, DEVICE_ARGS(DOUBLE_FP_CONFIG), &value_int)) {
+    clint_log_device_raw(device, DEVICE_ARGS(DOUBLE_FP_CONFIG),
+                         clint_string_device_fp_config((cl_device_fp_config)value_int));
+  }
+  if (clint_get_device_int(device, DEVICE_ARGS(HALF_FP_CONFIG), &value_int)) {
+    clint_log_device_raw(device, DEVICE_ARGS(HALF_FP_CONFIG),
+                         clint_string_device_fp_config((cl_device_fp_config)value_int));
+  }
   clint_log_device_int(device, DEVICE_ARGS(QUEUE_PROPERTIES), CL_TRUE);
 
   clint_log_device_int(device, DEVICE_ARGS(VENDOR_ID), CL_FALSE);
@@ -342,12 +493,16 @@ void clint_log_device(cl_device_id device)
   clint_log_device_int(device, DEVICE_ARGS(PARENT_DEVICE), CL_TRUE);
   clint_log_device_int(device, DEVICE_ARGS(PARTITION_MAX_SUB_DEVICES), CL_FALSE);
   clint_log_device_partition(device, DEVICE_ARGS(PARTITION_PROPERTIES));
-  clint_log_device_raw(device, DEVICE_ARGS(PARTITION_AFFINITY_DOMAIN),
-                       clint_string_device_affinity_domain(clint_get_device_int(device, DEVICE_ARGS(PARTITION_AFFINITY_DOMAIN))));
+  if (clint_get_device_int(device, DEVICE_ARGS(PARTITION_AFFINITY_DOMAIN), &value_int)) {
+    clint_log_device_raw(device, DEVICE_ARGS(PARTITION_AFFINITY_DOMAIN),
+                         clint_string_device_affinity_domain((cl_device_affinity_domain)value_int));
+  }
   clint_log_device_partition(device, DEVICE_ARGS(PARTITION_TYPE));
   clint_log_device_int(device, DEVICE_ARGS(REFERENCE_COUNT), CL_FALSE);
   clint_log_device_int(device, DEVICE_ARGS(PREFERRED_INTEROP_USER_SYNC), CL_FALSE);
   clint_log_device_int(device, DEVICE_ARGS(PRINTF_BUFFER_SIZE), CL_FALSE);
+
+  clint_log_device_formats(platform, device);
 }
 
 void clint_log_platform(cl_platform_id platform)
@@ -369,7 +524,7 @@ void clint_log_platform(cl_platform_id platform)
       if ((err = clGetDeviceIDs(platform, CL_DEVICE_TYPE_ALL, count, devices, NULL)) == CL_SUCCESS) {
         cl_uint i;
         for (i = 0; i < count; i++) {
-          clint_log_device(devices[i]);
+          clint_log_device(platform, devices[i]);
         }
       }
       free(devices);

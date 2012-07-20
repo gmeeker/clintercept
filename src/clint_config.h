@@ -40,23 +40,37 @@ typedef enum ClintConfig {
   CLINT_LOG_FILE,
   /* Log all OpenCL calls. */
   CLINT_TRACE,
+  /* Log all OpenCL errors. */
+  CLINT_ERRORS,
   /* Track all OpenCL resources. */
   CLINT_TRACK,
-  /* Log all OpenCL calls. */
+  /* Log stack during resource allocation. */
+  CLINT_STACK_LOGGING,
+  /* Follow reference counts to find deallocated resources. */
   CLINT_CHECK_REFS,
   /* Check for threading errors. */
   CLINT_CHECK_THREAD,
   /* Check for any concurrent calls, even if allowed by OpenCL. */
   CLINT_STRICT_THREAD,
+  /* Remember deallocated resources. */
+  CLINT_ZOMBIES,
   /* Enable full debugging. */
   CLINT_CHECK_ALL,
   /* Abort when an error is encountered. */
   CLINT_ABORT,
+  /* Print OpenCL device info at startup. */
+  CLINT_INFO,
+  /* Profile kernel execution. */
+  CLINT_PROFILE,
+  /* Profile all calls. */
+  CLINT_PROFILE_ALL,
   /* Last item. */
   CLINT_MAX
 } ClintConfig;
 
 void clint_config_init(const ClintPathChar *path);
-int clint_get_config(ClintConfig v);
+int clint_get_config(ClintConfig which);
+void clint_set_config(ClintConfig which, int v);
+const char *clint_config_describe(ClintConfig which);
 
 #endif

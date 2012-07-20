@@ -26,8 +26,8 @@
 ** THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#ifndef _CLINT_TLS_H_
-#define _CLINT_TLS_H_
+#ifndef _CLINT_THREAD_H_
+#define _CLINT_THREAD_H_
 
 #include <stdlib.h>
 #include <stdarg.h>
@@ -60,4 +60,4 @@ void clint_tls_erase(const ClintTLS *tls);
 }
 #endif
 
-#endif // _CLINT_TLS_H_
+#endif // _CLINT_THREAD_H_

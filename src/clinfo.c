@@ -27,11 +27,13 @@
 */
 
 #include "clint.h"
+#include "clint_log.h"
 
 int main(int argc, const char *argv[])
 {
   (void)argc;
   (void)argv;
+  clint_log_init_fp(stdout);
   clint_log_platforms();
   return 0;
 }

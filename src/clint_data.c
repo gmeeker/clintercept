@@ -27,7 +27,7 @@
 */
 
 #include "clint_data.h"
-#include "clint_tls.h"
+#include "clint_thread.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -35,6 +35,22 @@
 
 static ClintTLS g_clint_autopool_key;
 static int g_clint_autopool_init = 0;
+
+void clint_data_init()
+{
+  if (g_clint_autopool_init == 0) {
+    g_clint_autopool_init = 1;
+    clint_tls_create(&g_clint_autopool_key);
+  }
+}
+
+void clint_data_shutdown()
+{
+  if (g_clint_autopool_init == 1) {
+    g_clint_autopool_init = 0;
+    clint_tls_delete(&g_clint_autopool_key);
+  }
+}
 
 void *clint_autopool_malloc(size_t size)
 {
@@ -55,11 +71,9 @@ void clint_autopool_begin(ClintAutopool *pool)
 {
   ClintAutopool *pools;
 
-  if (g_clint_autopool_init == 0) {
-    g_clint_autopool_init = 1;
-    clint_tls_create(&g_clint_autopool_key);
-  }
+  clint_data_init();
   pools = clint_tls_get(&g_clint_autopool_key);
+  pool->ptr = NULL;
   CLINT_STACK_PUSH(pools, pool);
   clint_tls_set(&g_clint_autopool_key, pools);
 }
@@ -70,10 +84,10 @@ void clint_autopool_end(ClintAutopool *pool)
 
   pools = clint_tls_get(&g_clint_autopool_key);
   assert(pools == pool);
-  CLINT_STACK_POP(pools);
+  pool = CLINT_STACK_POP(pools);
   clint_tls_set(&g_clint_autopool_key, pools);
 
-  CLINT_STACK_ITER(pool, free);
+  CLINT_STACK_ITER(pool->ptr, free);
 }
 
 const char *clint_string_vsprintf(const char *fmt, va_list ap)
@@ -81,12 +95,15 @@ const char *clint_string_vsprintf(const char *fmt, va_list ap)
   size_t size;
   char *buf;
   char tmp[8];
+  va_list ap2;
 
+  va_copy(ap2, ap);
 #if defined(WIN32)
-  size = (size_t)vsprintf_s(tmp, sizeof(tmp), fmt, ap) + 1;
+  size = (size_t)vsprintf_s(tmp, sizeof(tmp), fmt, ap2) + 1;
 #else
-  size = (size_t)vsnprintf(tmp, sizeof(tmp), fmt, ap) + 1;
+  size = (size_t)vsnprintf(tmp, sizeof(tmp), fmt, ap2) + 1;
 #endif
+  va_end(ap2);
   buf = (char*)clint_autopool_malloc(size);
 #if defined(WIN32)
   vsprintf_s(buf, size, fmt, ap);
@@ -140,7 +157,7 @@ const char *clint_string_join(const char *s1, const char *s2, const char *j)
   size = strlen(s1) + strlen(s2) + strlen(j) + 1;
   buf = (char*)clint_autopool_malloc(size);
   strncpy(buf, s1, size);
-  strncpy(buf, j, size);
+  strncat(buf, j, size);
   strncat(buf, s2, size);
 
   return buf;

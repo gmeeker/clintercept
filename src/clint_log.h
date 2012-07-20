@@ -29,6 +29,7 @@
 #ifndef _CLINT_LOG_H_
 #define _CLINT_LOG_H_
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
 
@@ -42,8 +43,14 @@
 extern "C" {
 #endif
 
+void clint_log_init(const char *filename);
+void clint_log_init_fp(FILE *fp);
+void clint_log_shutdown();
+void clint_log_abort();
+void clint_log_describe();
 void clint_log(const char *fmt, ...);
-void clint_log_device(cl_device_id device);
+void clint_log_device_formats(cl_platform_id platform, cl_device_id device);
+void clint_log_device(cl_platform_id platform, cl_device_id device);
 void clint_log_platform(cl_platform_id platform);
 void clint_log_platforms();
 

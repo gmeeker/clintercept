@@ -65,6 +65,8 @@ typedef struct ClintAutopool {
     }                                           \
   }
 
+void clint_data_init();
+void clint_data_shutdown();
 void *clint_autopool_malloc(size_t size);
 void clint_autopool_begin(ClintAutopool*);
 void clint_autopool_end(ClintAutopool*);

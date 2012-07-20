@@ -26,7 +26,7 @@
 ** THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#include "clint_tls.h"
+#include "clint_thread.h"
 
 #if defined(WIN32)
 
