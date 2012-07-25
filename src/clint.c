@@ -54,13 +54,33 @@ void clint_opencl_unload(void *dll)
 
 #include <windows.h>
 #include <tchar.h>
+#include <shlobj.h>
+
+#ifndef LOAD_LIBRARY_SEARCH_SYSTEM32
+#define LOAD_LIBRARY_SEARCH_SYSTEM32 0x00000800
+#endif
+#ifndef LOAD_LIBRARY_SEARCH_USER_DIRS
+#define LOAD_LIBRARY_SEARCH_USER_DIRS 0x00000400
+#endif
 
 void* clint_opencl_load(void)
 {
+  void *lib;
+
   /* Load OpenCL.dll without searching application directory,
      presumably where this library is located. */
-  void *lib = LoadLibraryEx(_T("OpenCL.dll"),
-                            LOAD_LIBRARY_SEARCH_SYSTEM32 | LOAD_LIBRARY_SEARCH_USER_DIRS);
+
+  if (GetProcAddress(GetModuleHandle(_T("kernel32.dll")), "AddDllDirectory")) {
+    lib = LoadLibraryEx(_T("OpenCL.dll"),
+                        NULL,
+                        LOAD_LIBRARY_SEARCH_SYSTEM32 | LOAD_LIBRARY_SEARCH_USER_DIRS);
+  } else {
+    TCHAR path[_MAX_PATH];
+    if (SHGetFolderPath(NULL, CSIDL_SYSTEM, NULL, SHGFP_TYPE_CURRENT, path) != S_OK)
+      return NULL;
+    _tcscat_s(path, _countof(path), _T("\\OpenCL.dll"));
+    lib = LoadLibrary(path);
+  }
   clint_opencl_init();
   return lib;
 }
@@ -109,7 +129,7 @@ void clint_opencl_init()
     return;
   GetModuleFileName((HINSTANCE)mbi.AllocationBase, path, sizeof(path) / sizeof(TCHAR));
   _tcsrchr(path, '\\')[1] = 0; 
-  _tcscat(path, _T("ClintConfig.txt"));
+  _tcscat_s(path, _countof(path), _T("ClintConfig.txt"));
   clint_config_init(path);
 #else
   const char *envstr;

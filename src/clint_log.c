@@ -133,6 +133,8 @@ void clint_log(const char *fmt, ...)
 
 #elif defined(WIN32)
 
+#include <windows.h>
+
 void clint_log(const char *fmt, ...)
 {
   char *buf;
@@ -173,7 +175,13 @@ void clint_log_init(const char *filename)
 {
   clint_log_shutdown();
   if (filename != NULL) {
+#if defined(WIN32)
+    if (fopen_s(&g_clint_log_fp, filename, "w") != 0) {
+      g_clint_log_fp = NULL;
+    }
+#else
     g_clint_log_fp = fopen(filename, "w");
+#endif
     g_clint_log_fp_close = 1;
   }
 }

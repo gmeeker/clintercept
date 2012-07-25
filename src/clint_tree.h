@@ -55,7 +55,7 @@ void clint_rb_tree_delete(ClintRbTreeNode **tree, ClintRbTreeNode *z);
     ClintRbTreeNode rb_node;                                        \
     struct { T *left, *right, *parent; } pointers;                  \
   } _node;                                                          \
-  KEY _key;
+  KEY _key
 
 #define CLINT_DEFINE_TREE_FUNCS(type, KEY)                          \
 type *clint_tree_find_##type(type *tree, KEY key);                  \
@@ -79,10 +79,10 @@ type *clint_tree_find_##type(type *tree, KEY key)                   \
                                                                     \
 void clint_tree_insert_##type(type **tree, KEY key, type *z)        \
 {                                                                   \
-  z->_key = key;                                                    \
   type *y = NULL;                                                   \
   type *x = *tree;                                                  \
                                                                     \
+  z->_key = key;                                                    \
   z->_node.pointers.left = z->_node.pointers.right = NULL;          \
   while (x != NULL) {                                               \
     y = x;                                                          \

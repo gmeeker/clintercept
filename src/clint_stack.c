@@ -32,6 +32,10 @@
 #include <string.h>
 
 #if defined(WIN32)
+#include <windows.h>
+#include <DbgHelp.h>
+#include <stdio.h>
+#pragma comment(lib,"DbgHelp.lib")
 #else
 #include <execinfo.h>
 #endif

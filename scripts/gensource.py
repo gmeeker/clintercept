@@ -5,20 +5,22 @@ import re
 import string
 import sys
 
-pat_func = re.compile(r'(extern\s+CL_API_ENTRY\s+[^;]*\s+CL_[A-Z]*_SUFFIX__VERSION[_0-9]*\s*;)')
+pat_func = re.compile(r'(extern\s+CL_API_ENTRY\s+[^;]*\s+CL_[A-Z]*_SUFFIX__VERSION[_0-9]*(?:_DEPRECATED)?\s*;)')
 pat_extern = re.compile(r'extern\s+')
 pat_name = re.compile(r'CL_API_CALL\s+(\w+)')
 pat_func_before_args = re.compile(r'^.*CL_API_CALL\s+\w+\(')
 pat_args = re.compile(r'(([a-zA-Z0-9_* ]+)\s+(\w+)\s*[,)])|((\w+(\s*[*])?\s*\(\s*(CL_CALLBACK)?\s*[*]\s*\w+\s*\)\s*\([^)]*\))\s*[,)])')
 pat_func_ptr = re.compile(r'((CL_CALLBACK)?\s*[*])\s*(\w+)')
 pat_return = re.compile(r'CL_API_ENTRY\s+(\w+(\s*[*])?)\s+CL_API_CALL')
-pat_suffix = re.compile(r'\s+CL_[A-Z]*_SUFFIX__VERSION[_0-9]*')
+pat_suffix = re.compile(r'\s+CL_[A-Z]*_SUFFIX__VERSION[_0-9A-Z]*')
 pat_comment = re.compile(r'/[*]\s*(\w*).*?[*]/')
-pat_type_comment = re.compile(r'/[*]\s*(cl_[a-z_]+)\s*.*[*]/')
+pat_c_cpp_comment = re.compile(r'(/[*].*[*]/)|(//.*\n?)')
+pat_type_comment = re.compile(r'/[*]\s*(Additional\s+)?(cl_[a-z0-9_]+)\s*.*[*]/')
+pat_type_cpp_comment = re.compile(r'//\s*(Additional\s+)?(cl_[a-z0-9_]+)\s*.*\n?')
 pat_err = re.compile(r'#define\s+(CL_[A-Za-z0-9_]+)\s+(-?[0-9]+)')
 pat_define = re.compile(r'#define\s+(CL_[A-Za-z0-9_]+)\s+((0x[0-9A-Fa-f]+)|(-?[0-9]+))')
 pat_bitfield = re.compile(r'#define\s+(CL_[A-Za-z0-9_]+)\s+(\([0-9]+\s*<<\s*[0-9]+\))')
-pat_struct = re.compile(r'}\s*(cl_[a-z_]+)\s*;')
+pat_struct = re.compile(r'}\s*(cl_[a-z0-9_]+)\s*;')
 
 def pointer_name(name):
     return 'clint_' + name + '_ptr'
@@ -166,9 +168,23 @@ def append_type_map(typeMap, key, value):
     if key == 'cl_bool':
         return
     if key in typeMap:
-        typeMap[key].append(value)
+        if not value[0] in map(lambda x: x[0], typeMap[key]):
+            typeMap[key].append(value)
     else:
         typeMap[key] = [value]
+
+def fix_type_name(type_name):
+    if type_name[:6] == 'cl_d3d':
+        # fix errors in the comments that should use _khr
+        if 'device_source' in type_name or 'device_set' in type_name:
+            if type_name[-3:] == '_nv':
+                return type_name[:-3] + '_khr'
+            if type_name[-4:] != '_khr':
+                return type_name + '_khr'
+    # typos
+    if type_name == "cl_kernel_arg_type_qualifer":
+        return "cl_kernel_arg_type_qualifier"
+    return type_name
 
 def gen_format_struct_name(name):
     name = string.strip(name)
@@ -316,7 +332,7 @@ def gen_func(out, f, typeMap):
     out.write('}\n')
     out.write('\n')
 
-def scanFile(file, funcs, typeMap):
+def scanFile(file, filename, funcs, typeMap, typeIncludes):
     text = file.read()
     protos = pat_func.findall(text)
     for proto in protos:
@@ -354,13 +370,15 @@ def scanFile(file, funcs, typeMap):
                     append_type_map(typeMap, 'cl_context_properties', v)
                 if v[1][:2] == '0x' and string.atol(v[1], 16) >= 0x1000:
                     append_type_map(typeMap, 'token', v)
-            elif not pat_comment.search(line):
+            elif not pat_c_cpp_comment.search(line):
                 # end of type defines
                 type_name = None
         else:
             m = pat_type_comment.search(line)
-            if m:
-                type_name = m.group(1)
+            if not m:
+                m = pat_type_cpp_comment.search(line)
+            if m and not 'extension' in line:
+                type_name = fix_type_name(m.group(2))
             elif '/* command execution status */' in line:
                 type_name = 'execution_status'
             else:
@@ -389,17 +407,31 @@ def scanFile(file, funcs, typeMap):
                         elif v[0] in ('CL_YCbYCr_APPLE', 'CL_CbYCrY_APPLE', 'CL_SFIXED14_APPLE'):
                             append_type_map(typeMap, 'cl_channel_type', v)
                         else:
-                            sys.stderr.write('Unmatched #define %s %s\n' % (m.group(1), m.group(2)))
+                            sys.stderr.write('Ungrouped #define %s %s\n' % (m.group(1), m.group(2)))
                             continue
                         append_type_map(typeMap, 'token', v)
                 m = pat_bitfield.search(line)
                 if m:
-                    sys.stderr.write('Unmatched bitfield %s %s\n' % (m.group(1), m.group(2)))
+                    sys.stderr.write('Ungrouped bitfield %s %s\n' % (m.group(1), m.group(2)))
+            includeName = os.path.basename(filename)
+            if type_name and includeName != 'cl.h' and not includeName in typeIncludes:
+                typeIncludes.append(includeName)
 
-def gen_type_header(file, typeMap):
+def gen_type_header(file, typeMap, typeIncludes):
     file.write('#ifndef _CLINT_OPENCL_TYPES_H_\n')
     file.write('#define _CLINT_OPENCL_TYPES_H_\n\n')
     gen_top(file)
+    if typeIncludes:
+        file.write('\n')
+        file.write('#define D3D10_IGNORE_SDK_LAYERS\n')
+        file.write('#define D3D11_IGNORE_SDK_LAYERS\n')
+        file.write('#ifdef __APPLE__\n')
+        for i in typeIncludes:
+            file.write('#include <OpenCL/%s>\n' % i)
+        file.write('#else\n')
+        for i in typeIncludes:
+            file.write('#include <CL/%s>\n' % i)
+        file.write('#endif\n')
     file.write('\n')
     gen_prefix(file)
     file.write('\n')
@@ -531,25 +563,39 @@ def gen_func_source(file, funcs, typeMap):
 
 funcs = []
 typeMap = {}
+typeIncludes = []
 
 base = None
+incdir = None
 
-i = 0
+i = 1
 while i < len(sys.argv):
     filename = sys.argv[i]
     i = i + 1
+    if filename == '-i':
+        incdir = sys.argv[i]
+        if os.path.basename(incdir)[-10:] == '.framework':
+            incdir = os.path.join(incdir, 'Headers')
+        elif os.path.basename(incdir) != 'CL':
+            incdir = os.path.join(incdir, 'CL')
+        i = i + 1
+        continue
     if filename == '-o':
         base = sys.argv[i]
         i = i + 1
         continue
+    if incdir and not os.path.isabs(filename):
+        filename = os.path.join(incdir, filename)
+    if not os.path.exists(filename) and os.path.basename(filename) in ('cl_d3d10.h', 'cl_d3d11.h'):
+        continue
     file = open(filename, 'r')
-    scanFile(file, funcs, typeMap)
+    scanFile(file, filename, funcs, typeMap, typeIncludes)
 
 out = sys.stdout
 
 if base:
     out = open(os.path.join(base, 'clint_opencl_types.h'), 'w')
-gen_type_header(out, typeMap)
+gen_type_header(out, typeMap, typeIncludes)
 
 if base:
     out = open(os.path.join(base, 'clint_opencl_types.c'), 'w')

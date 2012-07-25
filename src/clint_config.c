@@ -40,7 +40,7 @@
 #endif
 
 #if defined(WIN32)
-#define strcasecmp stricmp
+#define strcasecmp _stricmp
 #endif
 
 static const char *g_clint_config_names[CLINT_MAX] = {
@@ -147,13 +147,21 @@ void clint_config_init(const ClintPathChar *path)
   if (path) {
     FILE *fp;
 #if defined(WIN32)
-    fp = _tfopen(path, _T("r"));
+    if (_tfopen(&fp, path, _T("r")) != 0) {
+      fp = NULL;
+    }
 #else
     fp = fopen(path, "r");
 #endif
     if (fp != NULL) {
       while (fgets(buf, bufsize, fp) != NULL) {
-        if (sscanf(buf, " %s ", key) == 1) {
+        if (
+#if defined(WIN32)
+            sscanf_s(buf, " %s ", key, bufsize) == 1
+#else
+            sscanf(buf, " %s ", key) == 1
+#endif
+            ) {
           const char *s = strchr(buf, '=');
           if (s) {
             s++;

@@ -17,17 +17,27 @@ endif()
 set(CMAKE_OSX_ARCHITECTURES i386;x86_64)
 set(CMAKE_OSX_DEPLOYMENT_TARGET 10.6)
 
-if (APPLE)
-  set(OPENCL_INCLUDE_SEARCH "${OPENCL_INCLUDE_DIRS}/Headers/")
-else()
-  set(OPENCL_INCLUDE_SEARCH ${OPENCL_INCLUDE_DIRS})
+set(CLINT_OPENCL_HEADERS "cl.h;cl_ext.h" CACHE STRING "Headers to scan for OpenCL functions.")
+set(CLINT_USE_OPENGL ON CACHE BOOL "Support OpenCL/OpenGL sharing functions.")
+set(CLINT_OPENGL_HEADERS "cl_gl.h;cl_gl_ext.h" CACHE STRING "Headers to scan for OpenCL/OpenGL functions.")
+if (WIN32)
+  set(CLINT_USE_D3D ON CACHE BOOL "Support OpenCL/Direct3D sharing functions.")
+  set(CLINT_D3D_HEADERS "cl_d3d10.h;cl_d3d11.h" CACHE STRING "Headers to scan for OpenCL/Direct3D functions.")
+endif()
+
+list(APPEND CLINT_SCAN_HEADERS ${CLINT_OPENCL_HEADERS})
+if (${CLINT_USE_OPENGL})
+  list(APPEND CLINT_SCAN_HEADERS ${CLINT_OPENGL_HEADERS})
+endif()
+if (${CLINT_USE_D3D})
+  list(APPEND CLINT_SCAN_HEADERS ${CLINT_D3D_HEADERS})
 endif()
 
 add_custom_command (
   OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/clint_opencl_funcs.c
   OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/clint_opencl_types.c
   OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/clint_opencl_types.h
-  COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/gensource.py ${OPENCL_INCLUDE_SEARCH}/{cl.h,cl_ext.h,cl_gl.h,cl_gl_ext.h} -o ${CMAKE_CURRENT_BINARY_DIR}
+  COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/gensource.py -i ${OPENCL_INCLUDE_DIRS} -o ${CMAKE_CURRENT_BINARY_DIR} ${CLINT_SCAN_HEADERS}
   DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/scripts/gensource.py
   )
 
@@ -43,8 +53,8 @@ else()
   set(EXTRA_LIBS )
 endif()
 
-add_executable (clinfo ${CMAKE_CURRENT_BINARY_DIR}/clint_opencl_types.c src/clinfo.c src/clint_config.c src/clint_data.c src/clint_log.c src/clint_thread.c ${OPENCL_LIBRARIES})
-target_link_libraries(clinfo ${EXTRA_LINK_FLAGS})
+add_executable (clinfo ${CMAKE_CURRENT_BINARY_DIR}/clint_opencl_types.c src/clinfo.c src/clint_config.c src/clint_data.c src/clint_log.c src/clint_thread.c)
+target_link_libraries(clinfo ${EXTRA_LINK_FLAGS} ${OPENCL_LIBRARIES})
 
 add_library (${CLINT_LIBNAME} SHARED ${CMAKE_CURRENT_BINARY_DIR}/clint_opencl_funcs.c ${CMAKE_CURRENT_BINARY_DIR}/clint_opencl_types.c src/clint.c src/clint_config.c src/clint_data.c src/clint_log.c src/clint_res.c src/clint_stack.c src/clint_thread.c src/clint_tree.c ${EXTRA_LIBS})
 target_link_libraries(${CLINT_LIBNAME} ${EXTRA_CLINT_LINK_FLAGS})

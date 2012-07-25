@@ -36,6 +36,10 @@
 static ClintTLS g_clint_autopool_key;
 static int g_clint_autopool_init = 0;
 
+#if defined(_MSC_VER) && !defined(va_copy)
+#define va_copy(a, b) (a) = (b)
+#endif
+
 void clint_data_init()
 {
   if (g_clint_autopool_init == 0) {
@@ -84,10 +88,11 @@ void clint_autopool_end(ClintAutopool *pool)
 
   pools = clint_tls_get(&g_clint_autopool_key);
   assert(pools == pool);
-  pool = CLINT_STACK_POP(pools);
+  pool = pools;
+  CLINT_STACK_POP(pools);
   clint_tls_set(&g_clint_autopool_key, pools);
 
-  CLINT_STACK_ITER(pool->ptr, free);
+CLINT_STACK_ITER(ClintAutopoolElem, pool->ptr, free);
 }
 
 const char *clint_string_shorten(const char *s)
@@ -98,8 +103,13 @@ const char *clint_string_shorten(const char *s)
   if (s != NULL && strlen(s) < maxlen)
     return s;
   buf = clint_autopool_malloc(maxlen);
+#if defined(WIN32)
+  strncpy_s(buf, maxlen, s, maxlen - 4);
+  strcpy_s(buf + maxlen - 4, 4, "...");
+#else
   strncpy(buf, s, maxlen - 4);
-  strncpy(buf + maxlen - 4, "...", 4);
+  strcpy(buf + maxlen - 4, "...");
+#endif
 
   return buf;
 }
@@ -151,8 +161,13 @@ const char *clint_string_cat(const char *s1, const char *s2)
     return s1;
   size = strlen(s1) + strlen(s2) + 1;
   buf = (char*)clint_autopool_malloc(size);
-  strncpy(buf, s1, size);
-  strncat(buf, s2, size);
+#if defined(WIN32)
+  strcpy_s(buf, size, s1);
+  strcat_s(buf, size, s2);
+#else
+  strcpy(buf, s1);
+  strcat(buf, s2);
+#endif
 
   return buf;
 }
@@ -170,9 +185,15 @@ const char *clint_string_join(const char *s1, const char *s2, const char *j)
     return s1;
   size = strlen(s1) + strlen(s2) + strlen(j) + 1;
   buf = (char*)clint_autopool_malloc(size);
-  strncpy(buf, s1, size);
-  strncat(buf, j, size);
-  strncat(buf, s2, size);
+#if defined(WIN32)
+  strcpy_s(buf, size, s1);
+  strcat_s(buf, size, j);
+  strcat_s(buf, size, s2);
+#else
+  strcpy(buf, s1);
+  strcat(buf, j);
+  strcat(buf, s2);
+#endif
 
   return buf;
 }

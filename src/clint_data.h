@@ -49,17 +49,15 @@ typedef struct ClintAutopool {
   (ELEM)->next = (LIST);                        \
   (LIST) = (ELEM)
 #define CLINT_STACK_POP(LIST)                   \
-  ({                                            \
-    typeof(*(LIST)) *_ptr = (LIST);             \
+  {                                             \
     if ((LIST))                                 \
       (LIST) = (LIST)->next;                    \
-    _ptr;                                       \
-  })
-#define CLINT_STACK_ITER(LIST, FUNC)            \
+  }
+#define CLINT_STACK_ITER(T, LIST, FUNC)         \
   {                                             \
-    typeof(*(LIST)) *_ptr = (LIST);             \
+    T *_ptr = (LIST);                           \
     while (_ptr) {                              \
-      typeof(*(LIST)) *_ptrnext = _ptr->next;   \
+      T *_ptrnext = _ptr->next;                 \
       (FUNC)(_ptr);                             \
       _ptr = _ptrnext;                          \
     }                                           \
@@ -76,9 +74,9 @@ typedef struct ClintAutopool {
   if ((LIST))                                   \
     (LIST)->prev = (ELEM);                      \
   (LIST) = (ELEM)
-#define CLINT_LIST_REMOVE(LIST, ELEM)           \
+#define CLINT_LIST_REMOVE(T, LIST, ELEM)        \
   {                                             \
-    typeof((LIST)) _ptr = (LIST);               \
+    T *_ptr = (LIST);                           \
     while (_ptr) {                              \
       if (_ptr == (ELEM)) {                     \
         if (_ptr->prev) {                       \
@@ -92,16 +90,15 @@ typedef struct ClintAutopool {
       _ptr = _ptr->next;                        \
     }                                           \
   }
-#define CLINT_LIST_FIND(LIST, KEY)              \
-  ({                                            \
-    typeof((LIST)) _ptr = (LIST);               \
-    while (_ptr) {                              \
-      if (_ptr->key == (KEY))                   \
+#define CLINT_LIST_FIND(PTR, LIST, KEY)         \
+  {                                             \
+    (PTR) = (LIST);                             \
+    while ((PTR)) {                             \
+      if ((PTR)->key == (KEY))                  \
         break;                                  \
-      _ptr = _ptr->next;                        \
+      (PTR) = (PTR)->next;                      \
     }                                           \
-    _ptr;                                       \
-  })
+  }
 
 void clint_data_init();
 void clint_data_shutdown();

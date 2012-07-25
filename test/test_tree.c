@@ -55,16 +55,18 @@ static void clint_rb_tree_test(ClintRbTreeNode *x)
   }
 }
 
+#define COUNT 1000
+
 int main(int argc, const char *argv[])
 {
-  (void)argc;
-  (void)argv;
   TestTreeElem *tree = NULL;
   TestTreeElem *x;
-  const int count = 1000;
-  int order[count];
+  const int count = COUNT;
+  int order[COUNT];
   int i, j;
 
+  (void)argc;
+  (void)argv;
   for (i = 0; i < count; i++) {
     x = (TestTreeElem*)malloc(sizeof(TestTreeElem));
     order[i] = rand() % count;

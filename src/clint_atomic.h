@@ -44,10 +44,10 @@ extern "C" {
 
 #if defined(WIN32)
 
-typedef LONG ClintSpinLock;
+typedef volatile LONG ClintSpinLock;
 typedef LONG ClintAtomicInt;
 
-#define CLINT_SPINLOCK_LOCK(l) { while (InterlockedExchangeAcquire(&(l), 1) != 0) { while (l) {} } }
+#define CLINT_SPINLOCK_LOCK(l) { while (InterlockedCompareExchangeAcquire(&(l), 1, 0) != 0) { while (l) {} } }
 #define CLINT_SPINLOCK_UNLOCK(l) InterlockedCompareExchangeRelease(&(l), 0, 1)
 #define CLINT_ATOMIC_ADD(v, a) (InterlockedExchangeAdd(&(a), v) + v)
 #define CLINT_ATOMIC_SUB(v, a) (InterlockedExchangeAdd(&(a), v) - v)
