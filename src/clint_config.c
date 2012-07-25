@@ -50,11 +50,11 @@ static const char *g_clint_config_names[CLINT_MAX] = {
   "CLINT_TRACE",
   "CLINT_ERRORS",
   "CLINT_TRACK",
+  "CLINT_ZOMBIES",
+  "CLINT_LEAKS",
   "CLINT_STACK_LOGGING",
-  "CLINT_CHECK_REFS",
   "CLINT_CHECK_THREAD",
   "CLINT_STRICT_THREAD",
-  "CLINT_ZOMBIES",
   "CLINT_CHECK_ALL",
   "CLINT_ABORT",
   "CLINT_INFO",
@@ -71,11 +71,11 @@ static const char *g_clint_config_describe[CLINT_MAX] = {
   "CLINT_TRACE enabled: logging all OpenCL calls.\n",
   "CLINT_ERRORS enabled: logging all OpenCL errors.\n",
   "CLINT_TRACK enabled: track all OpenCL resources.\n",
+  "CLINT_ZOMBIES enabled: remember deallocated resources.\n",
+  "CLINT_LEAKS enabled: report any leaked resources.\n",
   "CLINT_STACK_LOGGING enabled: log stack during resource allocation.\n",
-  "CLINT_CHECK_REFS enabled: check for invalid OpenCL arguments.\n",
   "CLINT_CHECK_THREAD enabled: check for illegal concurrent calls.\n",
   "CLINT_STRICT_THREAD enabled: check for any concurrent calls.\n",
-  "CLINT_ZOMBIES enabled: remember deallocated resources.\n",
   "CLINT_CHECK_ALL enabled: full OpenCL checking.\n",
   "CLINT_ABORT enabled: break on OpenCL errors.\n",
   "CLINT_INFO enabled: show device capabilities.\n",
@@ -105,7 +105,7 @@ static int clint_config_parse_flag(const char *s)
   l = strtol(s, &end, 0);
   if (end != s)
     return (int)l;
-  return 0;
+  return 1;
 }
 
 static int clint_config_parse_string(char *output, const char *input)
@@ -184,7 +184,7 @@ void clint_config_init(const ClintPathChar *path)
 #if HAVE_GETENV
   for (i = 0; i < CLINT_MAX; i++) {
     const char *envstr = getenv(g_clint_config_names[i]);
-    if (envstr && *envstr) {
+    if (envstr) {
       switch (i) {
       case CLINT_CONFIG_FILE:
         break;
@@ -200,7 +200,16 @@ void clint_config_init(const ClintPathChar *path)
 #endif
 
   if (logfile_ptr != NULL) {
-    clint_log_init(logfile_ptr);
+    if (strcmp(logfile_ptr, "stdout") == 0 ||
+        strcmp(logfile_ptr, "-") == 0 ||
+        strcmp(logfile_ptr, "1") == 0) {
+      clint_log_init_fp(stdout);
+    } else if (strcmp(logfile_ptr, "stderr") == 0 ||
+               strcmp(logfile_ptr, "2") == 0) {
+      clint_log_init_fp(stderr);
+    } else {
+      clint_log_init(logfile_ptr);
+    }
   }
 
   free(buf);
@@ -223,11 +232,8 @@ void clint_config_init(const ClintPathChar *path)
     clint_set_config(CLINT_CHECK_THREAD, 1);
   }
   if (clint_get_config(CLINT_CHECK_ALL)) {
-    clint_set_config(CLINT_CHECK_REFS, 1);
-    clint_set_config(CLINT_CHECK_THREAD, 1);
-  }
-  if (clint_get_config(CLINT_CHECK_REFS)) {
     clint_set_config(CLINT_TRACK, 1);
+    clint_set_config(CLINT_CHECK_THREAD, 1);
   }
   if (clint_get_config(CLINT_PROFILE_ALL)) {
     clint_set_config(CLINT_PROFILE, 1);

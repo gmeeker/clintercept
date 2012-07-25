@@ -65,13 +65,52 @@ typedef struct ClintAutopool {
     }                                           \
   }
 
+#define CLINT_LIST_ELEMS(T, KEY)                \
+  T *prev;                                      \
+  T *next;                                      \
+  KEY key;
+#define CLINT_LIST_INSERT(LIST, KEY, ELEM)      \
+  (ELEM)->next = (LIST);                        \
+  (ELEM)->prev = NULL;                          \
+  (ELEM)->key = (KEY);                          \
+  if ((LIST))                                   \
+    (LIST)->prev = (ELEM);                      \
+  (LIST) = (ELEM)
+#define CLINT_LIST_REMOVE(LIST, ELEM)           \
+  {                                             \
+    typeof((LIST)) _ptr = (LIST);               \
+    while (_ptr) {                              \
+      if (_ptr == (ELEM)) {                     \
+        if (_ptr->prev) {                       \
+          _ptr->prev->next = _ptr->next;        \
+        }                                       \
+        if (_ptr->next) {                       \
+          _ptr->next->prev = _ptr->prev;        \
+        }                                       \
+        break;                                  \
+      }                                         \
+      _ptr = _ptr->next;                        \
+    }                                           \
+  }
+#define CLINT_LIST_FIND(LIST, KEY)              \
+  ({                                            \
+    typeof((LIST)) _ptr = (LIST);               \
+    while (_ptr) {                              \
+      if (_ptr->key == (KEY))                   \
+        break;                                  \
+      _ptr = _ptr->next;                        \
+    }                                           \
+    _ptr;                                       \
+  })
+
 void clint_data_init();
 void clint_data_shutdown();
 void *clint_autopool_malloc(size_t size);
 void clint_autopool_begin(ClintAutopool*);
 void clint_autopool_end(ClintAutopool*);
-const char *clint_string_sprintf(const char *fmt, ...);
+const char *clint_string_shorten(const char *s);
 const char *clint_string_vsprintf(const char *fmt, va_list ap);
+const char *clint_string_sprintf(const char *fmt, ...);
 const char *clint_string_cat(const char *s1, const char *s2);
 const char *clint_string_join(const char *s1, const char *s2, const char *j);
 

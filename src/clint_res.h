@@ -26,51 +26,37 @@
 ** THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#ifndef _CLINT_CONFIG_H_
-#define _CLINT_CONFIG_H_
+#ifndef _CLINT_RES_H_
+#define _CLINT_RES_H_
 
-#include "clint.h"
+#include "clint_log.h"
 
-typedef enum ClintConfig {
-  /* Is anything enabled? */
-  CLINT_ENABLED = 0,
-  /* Path for config file */
-  CLINT_CONFIG_FILE,
-  /* Path for log file */
-  CLINT_LOG_FILE,
-  /* Log all OpenCL calls. */
-  CLINT_TRACE,
-  /* Log all OpenCL errors. */
-  CLINT_ERRORS,
-  /* Track all OpenCL resources. */
-  CLINT_TRACK,
-  /* Remember deallocated resources. */
-  CLINT_ZOMBIES,
-  /* Report any leaked resources. */
-  CLINT_LEAKS,
-  /* Log stack during resource allocation. */
-  CLINT_STACK_LOGGING,
-  /* Check for threading errors. */
-  CLINT_CHECK_THREAD,
-  /* Check for any concurrent calls, even if allowed by OpenCL. */
-  CLINT_STRICT_THREAD,
-  /* Enable full debugging. */
-  CLINT_CHECK_ALL,
-  /* Abort when an error is encountered. */
-  CLINT_ABORT,
-  /* Print OpenCL device info at startup. */
-  CLINT_INFO,
-  /* Profile kernel execution. */
-  CLINT_PROFILE,
-  /* Profile all calls. */
-  CLINT_PROFILE_ALL,
-  /* Last item. */
-  CLINT_MAX
-} ClintConfig;
-
-void clint_config_init(const ClintPathChar *path);
-int clint_get_config(ClintConfig which);
-void clint_set_config(ClintConfig which, int v);
-const char *clint_config_describe(ClintConfig which);
-
+#ifdef __cplusplus
+extern "C" {
 #endif
+
+#define CLINT_DEFINE_RES_FUNCS(type)                                \
+void clint_check_input_##type(cl_##type v);                         \
+void clint_check_output_##type(cl_##type v);                        \
+void clint_check_input_##type##s(cl_uint num, const cl_##type *v);  \
+void clint_check_output_##type##s(cl_uint num, cl_##type *v);       \
+void clint_retain_##type(cl_##type v);                              \
+void clint_release_##type(cl_##type v)                              \
+
+CLINT_DEFINE_RES_FUNCS(context);
+CLINT_DEFINE_RES_FUNCS(command_queue);
+CLINT_DEFINE_RES_FUNCS(mem);
+CLINT_DEFINE_RES_FUNCS(program);
+CLINT_DEFINE_RES_FUNCS(kernel);
+CLINT_DEFINE_RES_FUNCS(event);
+CLINT_DEFINE_RES_FUNCS(sampler);
+
+/* After OpenCL 1.0, only clSetKernelArg is not thread safe. */
+void clint_kernel_enter(cl_kernel kernel);
+void clint_kernel_exit(cl_kernel kernel);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif // _CLINT_RES_H_

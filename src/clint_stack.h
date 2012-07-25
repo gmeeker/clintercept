@@ -26,51 +26,17 @@
 ** THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#ifndef _CLINT_CONFIG_H_
-#define _CLINT_CONFIG_H_
+#ifndef _CLINT_STACK_H_
+#define _CLINT_STACK_H_
 
-#include "clint.h"
-
-typedef enum ClintConfig {
-  /* Is anything enabled? */
-  CLINT_ENABLED = 0,
-  /* Path for config file */
-  CLINT_CONFIG_FILE,
-  /* Path for log file */
-  CLINT_LOG_FILE,
-  /* Log all OpenCL calls. */
-  CLINT_TRACE,
-  /* Log all OpenCL errors. */
-  CLINT_ERRORS,
-  /* Track all OpenCL resources. */
-  CLINT_TRACK,
-  /* Remember deallocated resources. */
-  CLINT_ZOMBIES,
-  /* Report any leaked resources. */
-  CLINT_LEAKS,
-  /* Log stack during resource allocation. */
-  CLINT_STACK_LOGGING,
-  /* Check for threading errors. */
-  CLINT_CHECK_THREAD,
-  /* Check for any concurrent calls, even if allowed by OpenCL. */
-  CLINT_STRICT_THREAD,
-  /* Enable full debugging. */
-  CLINT_CHECK_ALL,
-  /* Abort when an error is encountered. */
-  CLINT_ABORT,
-  /* Print OpenCL device info at startup. */
-  CLINT_INFO,
-  /* Profile kernel execution. */
-  CLINT_PROFILE,
-  /* Profile all calls. */
-  CLINT_PROFILE_ALL,
-  /* Last item. */
-  CLINT_MAX
-} ClintConfig;
-
-void clint_config_init(const ClintPathChar *path);
-int clint_get_config(ClintConfig which);
-void clint_set_config(ClintConfig which, int v);
-const char *clint_config_describe(ClintConfig which);
-
+#ifdef __cplusplus
+extern "C" {
 #endif
+
+char *clint_get_stack();
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif // _CLINT_STACK_H_

@@ -90,6 +90,20 @@ void clint_autopool_end(ClintAutopool *pool)
   CLINT_STACK_ITER(pool->ptr, free);
 }
 
+const char *clint_string_shorten(const char *s)
+{
+  char *buf;
+  const size_t maxlen = 32;
+
+  if (s != NULL && strlen(s) < maxlen)
+    return s;
+  buf = clint_autopool_malloc(maxlen);
+  strncpy(buf, s, maxlen - 4);
+  strncpy(buf + maxlen - 4, "...", 4);
+
+  return buf;
+}
+
 const char *clint_string_vsprintf(const char *fmt, va_list ap)
 {
   size_t size;

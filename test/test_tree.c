@@ -26,51 +26,58 @@
 ** THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#ifndef _CLINT_CONFIG_H_
-#define _CLINT_CONFIG_H_
+#include "clint_tree.h"
 
-#include "clint.h"
+#include <assert.h>
+#include <string.h>
 
-typedef enum ClintConfig {
-  /* Is anything enabled? */
-  CLINT_ENABLED = 0,
-  /* Path for config file */
-  CLINT_CONFIG_FILE,
-  /* Path for log file */
-  CLINT_LOG_FILE,
-  /* Log all OpenCL calls. */
-  CLINT_TRACE,
-  /* Log all OpenCL errors. */
-  CLINT_ERRORS,
-  /* Track all OpenCL resources. */
-  CLINT_TRACK,
-  /* Remember deallocated resources. */
-  CLINT_ZOMBIES,
-  /* Report any leaked resources. */
-  CLINT_LEAKS,
-  /* Log stack during resource allocation. */
-  CLINT_STACK_LOGGING,
-  /* Check for threading errors. */
-  CLINT_CHECK_THREAD,
-  /* Check for any concurrent calls, even if allowed by OpenCL. */
-  CLINT_STRICT_THREAD,
-  /* Enable full debugging. */
-  CLINT_CHECK_ALL,
-  /* Abort when an error is encountered. */
-  CLINT_ABORT,
-  /* Print OpenCL device info at startup. */
-  CLINT_INFO,
-  /* Profile kernel execution. */
-  CLINT_PROFILE,
-  /* Profile all calls. */
-  CLINT_PROFILE_ALL,
-  /* Last item. */
-  CLINT_MAX
-} ClintConfig;
+typedef struct TestTreeElem {
+  CLINT_TREE_ELEMS(struct TestTreeElem, int);
+} TestTreeElem;
 
-void clint_config_init(const ClintPathChar *path);
-int clint_get_config(ClintConfig which);
-void clint_set_config(ClintConfig which, int v);
-const char *clint_config_describe(ClintConfig which);
+CLINT_DEFINE_TREE_FUNCS(TestTreeElem, int);
+CLINT_IMPL_TREE_FUNCS(TestTreeElem, int);
 
-#endif
+static void clint_rb_tree_test(ClintRbTreeNode *x)
+{
+  if (x != NULL) {
+    if (x->left) {
+      assert(x->left->parent == x);
+    }
+    if (x->right) {
+      assert(x->right->parent == x);
+    }
+    if (x->parent) {
+      assert(x->parent->left == x || x->parent->right == x);
+    }
+    clint_rb_tree_test(x->left);
+    clint_rb_tree_test(x->right);
+  }
+}
+
+int main(int argc, const char *argv[])
+{
+  (void)argc;
+  (void)argv;
+  TestTreeElem *tree = NULL;
+  TestTreeElem *x;
+  const int count = 1000;
+  int order[count];
+  int i, j;
+
+  for (i = 0; i < count; i++) {
+    x = (TestTreeElem*)malloc(sizeof(TestTreeElem));
+    order[i] = rand() % count;
+    clint_tree_insert_TestTreeElem(&tree, order[i], x);
+    clint_rb_tree_test(&tree->_node.rb_node);
+  }
+  for (i = 0; i < count; i++) {
+    j = rand() % (count - i);
+    x = clint_tree_find_TestTreeElem(tree, order[j]);
+    assert(x != NULL);
+    clint_tree_erase_TestTreeElem(&tree, x);
+    clint_rb_tree_test(&tree->_node.rb_node);
+    free(x);
+    memmove(order + j, order + j + 1, sizeof(int) * (count - i - j - 1));
+  }
+}

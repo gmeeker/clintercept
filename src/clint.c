@@ -155,7 +155,7 @@ void clint_opencl_enter()
 {
   if (CLINT_ATOMIC_ADD(1, g_clint_thread_count) > 1) {
     if (clint_get_config(CLINT_STRICT_THREAD)) {
-      clint_log("Multiple threads detected.\n");
+      clint_log("ERROR: Multiple threads detected.\n");
       clint_log_abort();
     }
   }

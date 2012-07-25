@@ -179,38 +179,86 @@ def gen_format_struct_name(name):
     name = string.strip(name)
     return name
 
-def gen_format_str(t, typeMap, funcName):
+def gen_format_str(t, typeMap, funcName, inout):
     t = string.strip(t)
     if t == 'cl_int' and funcName == 'clSetUserEventStatus':
         t = 'execution_status'
-    if gen_format_struct_name(t) in gen_format_struct_map:
+    if (gen_format_struct_name(t) in gen_format_struct_map) and (inout != 0 or t[:6] == 'const ') and (inout != 1 or t[:6] != 'const '):
         return '%s'
-#        return string.join([gen_format_str(v[0], typeMap, funcName) for v in gen_format_struct_map[gen_format_struct_name(t)]], ',')
     if t in typeMap:
         return '%s'
     if t == 'const char *':
         return '%s'
     if '*' in t or '(' in t:
+        if inout == 1 and '*' in t and (not '(' in t) and gen_format_struct_name(t) != 'void':
+            return gen_format_str(gen_format_struct_name(t), typeMap, funcName, inout)
         return '%p'
     return gen_format_str_map[t]
 
-def gen_format_arg(t, name, typeMap, funcName):
+def gen_format_arg(t, name, typeMap, funcName, inout):
     t = string.strip(t)
     if t == 'cl_int' and funcName == 'clSetUserEventStatus':
         t = 'execution_status'
-    if gen_format_struct_name(t) in gen_format_struct_map:
+    if (gen_format_struct_name(t) in gen_format_struct_map) and (inout != 0 or t[:6] == 'const ') and (inout != 1 or t[:6] != 'const '):
         return 'clint_string_%s(%s)' % (gen_type_name(gen_format_struct_name(t)), name)
-#        return string.join([gen_format_arg(v[0], name + '->' + v[1], typeMap, funcName) for v in gen_format_struct_map[gen_format_struct_name(t)]], ', ')
+    if inout == 1 and '*' in t and (not '(' in t) and gen_format_struct_name(t) != 'void':
+        return '(%s ? *%s : 0)' % (name, name)
+    if t == 'const char *':
+        return 'clint_string_shorten(%s)' % name
     if not t in typeMap:
         return name
     return 'clint_string_%s(%s)' % (gen_type_name(t), name)
+
+gen_resources_list = string.split('cl_context cl_command_queue cl_mem cl_program cl_kernel cl_event cl_sampler')
+
+def gen_check_input_arg(arg, args, funcName):
+    if '*' in arg[0] and gen_format_struct_name(arg[0]) in gen_resources_list:
+        if arg[0][:6] != 'const ':
+            return None
+        type_name = gen_type_name(gen_format_struct_name(arg[0]))
+        i = args.index(arg)
+        if i > 0 and args[i-1][0] in ('cl_uint', 'size_t') and args[i-1][1][:4] == 'num_':
+            return 'clint_check_input_%s(%s, %s)' % (type_name+'s', args[i-1][1], arg[1])
+    if not arg[0] in gen_resources_list:
+        return None
+    if funcName[:8] == 'clRetain':
+        return 'clint_retain_%s(%s)' % (gen_type_name(arg[0]), arg[1])
+    if funcName[:9] == 'clRelease':
+        return 'clint_release_%s(%s)' % (gen_type_name(arg[0]), arg[1])
+    return 'clint_check_input_%s(%s)' % (gen_type_name(arg[0]), arg[1])
+
+def gen_check_output_arg(arg, args, funcName, pointers_only=1):
+    if '*' in arg[0] and gen_format_struct_name(arg[0]) in gen_resources_list:
+        if arg[0][:6] == 'const ':
+            return None
+        type_name = gen_type_name(gen_format_struct_name(arg[0]))
+        i = args.index(arg)
+        if i > 0 and args[i-1][0] in ('cl_uint', 'size_t') and args[i-1][1][:4] == 'num_':
+            return 'clint_check_input_%s(%s, %s)' % (type_name+'s', args[i-1][1], arg[1])
+        return 'if (%s)\n\tclint_check_output_%s(*%s)' % (arg[1], type_name, arg[1])
+    if pointers_only:
+        return None
+    if not arg[0] in gen_resources_list:
+        return None
+    return 'clint_check_output_%s(%s)' % (gen_type_name(arg[0]), arg[1])
 
 def gen_func(out, f, typeMap):
     proto, name, r, args, core = f
     proto = pat_comment.sub(r'\1', proto)
     proto = pat_suffix.sub('', proto)
     proto = proto.replace(name, 'F(%s)' % name)
-    fmt = name + '(' + string.join(map(lambda a: a[1] + '=' + gen_format_str(a[0], typeMap, name), args), ", ") + ')'
+
+    threadCalls = [('clint_opencl', '')]
+    # Only create, retain, and release functions are thread-safe in OpenCL 1.0
+    for i in ("Create", "Retain", "Release"):
+        if i in name:
+            threadCalls = []
+            break
+    # Thread-safe issues in OpenCL 1.1
+    if name == 'clSetKernelArg':
+        threadCalls.append(('clint_kernel', args[0][1]))
+
+    fmt = name + '(' + string.join(map(lambda a: a[1] + '=' + gen_format_str(a[0], typeMap, name, 0), args), ", ") + ')'
     call_args = string.join(map(lambda a: a[1], args), ", ")
     out.write(proto[:-1] + "\n")
     out.write('{\n')
@@ -223,8 +271,13 @@ def gen_func(out, f, typeMap):
     out.write('\tclint_init();\n')
     out.write('\tclint_autopool_begin(&pool);\n')
     out.write('\tif (clint_get_config(CLINT_TRACE))\n')
-    out.write('\t\tclint_log(%s);\n' % string.join(['"%s"' % fmt] + map(lambda a: gen_format_arg(a[0], a[1], typeMap, name), args), ", "))
-    out.write('\tclint_opencl_enter();\n')
+    out.write('\t\tclint_log(%s);\n' % string.join(['"%s"' % fmt] + map(lambda a: gen_format_arg(a[0], a[1], typeMap, name, 0), args), ", "))
+    for prefix in threadCalls:
+        out.write('\t%s_enter(%s);\n' % prefix)
+    for a in args:
+        f = gen_check_input_arg(a, args, name)
+        if f:
+            out.write('\t%s;\n' % f)
     if r != 'cl_int' and do_errcode:
         out.write('\tif (%s == NULL) %s = &errcode_local;\n' % (args[-1][1], args[-1][1]))
     if core:
@@ -242,13 +295,21 @@ def gen_func(out, f, typeMap):
         out.write('\t\tclint_log_abort();\n')
         out.write('\t}\n')
     if r != 'void' or args:
-        out_args = filter(lambda x: '*' in x[0] and (not 'const' in x[0]) and (x[0] != 'void *') and (x[0] != 'cl_image_format *') and (x[1] != 'errcode_ret'), args)
+        out_args = filter(lambda x: '*' in x[0] and (not 'const' in x[0]) and (x[0] != 'void *') and (x[1] != 'errcode_ret'), args)
         if r != 'void':
             out_args = [(r, 'retval')] + out_args
-        out_fmt = name + ' returned ' + string.join(map(lambda a: ((a[1] == 'retval') and gen_format_str(a[0], typeMap, name)) or (a[1] + '=' + gen_format_str(string.strip(a[0][:-1]), typeMap, name)), out_args), " ")
+        out_fmt = name + ' returned ' + string.join(map(lambda a: ((a[1] == 'retval') and gen_format_str(a[0], typeMap, name, 1)) or (a[1] + '=' + gen_format_str(string.strip(a[0][:-1]), typeMap, name, 1)), out_args), " ")
         out.write('\tif (clint_get_config(CLINT_TRACE))\n')
-        out.write('\t\tclint_log(%s);\n' % string.join(['"%s"' % out_fmt] + map(lambda a: ((a[1] == 'retval') and 'retval') or (a[1]+' ? '+'*'+a[1]+' : 0'), out_args), ", "))
-    out.write('\tclint_opencl_exit();\n')
+        out.write('\t\tclint_log(%s);\n' % string.join(['"%s"' % out_fmt] + map(lambda a: ((a[1] == 'retval') and 'retval') or gen_format_arg(a[0], a[1], typeMap, name, 1), out_args), ", "))
+    for prefix in threadCalls:
+        out.write('\t%s_exit(%s);\n' % prefix)
+    for a in args:
+        f = gen_check_output_arg(a, args, name)
+        if f:
+            out.write('\t%s;\n' % f)
+    f = gen_check_output_arg((r, 'retval'), args, name, 0)
+    if f:
+        out.write('\t%s;\n' % f)
     out.write('\tclint_autopool_end(&pool);\n')
     if r != 'void':
         out.write('\treturn retval;\n')
@@ -408,8 +469,8 @@ def gen_type_source(file, typeMap):
     for t in types:
         if not t in gen_format_struct_map:
             continue
-        fmt = string.join([gen_format_str(v[0], typeMap, '') for v in gen_format_struct_map[t]], ',')
-        args = string.join(['"%s"' % fmt] + [gen_format_arg(v[0], 'v->' + v[1], typeMap, '') for v in gen_format_struct_map[t]], ', ')
+        fmt = string.join([gen_format_str(v[0], typeMap, '', -1) for v in gen_format_struct_map[t]], ',')
+        args = string.join(['"%s"' % fmt] + [gen_format_arg(v[0], 'v->' + v[1], typeMap, '', -1) for v in gen_format_struct_map[t]], ', ')
         file.write('const char *clint_string_%s(const %s *v)\n' % (gen_type_name(t), gen_type_arg(t)))
         file.write('{\n')
         file.write('  if (v == NULL)\n')
@@ -422,6 +483,7 @@ def gen_func_source(file, funcs, typeMap):
     gen_top(file)
     file.write('#include "clint.h"\n')
     file.write('#include "clint_config.h"\n')
+    file.write('#include "clint_res.h"\n')
     file.write('#include "clint_opencl_types.h"\n')
     file.write('\n')
     gen_prefix(file)
@@ -456,7 +518,7 @@ def gen_func_source(file, funcs, typeMap):
         gen_func(file, f, typeMap)
     file.write('\n')
     file.write('#ifdef __APPLE__\n')
-    file.write('static __attribute__ ((section("__DATA, __interpose"))) struct {\n')
+    file.write('__attribute__ ((section("__DATA, __interpose"))) struct {\n')
     file.write('\tvoid *new_func;\n')
     file.write('\tvoid *old_func;\n')
     file.write('} clint_interpose_funcs[] = {\n')
