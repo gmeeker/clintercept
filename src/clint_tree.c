@@ -270,3 +270,36 @@ void clint_rb_tree_delete(ClintRbTreeNode **tree, ClintRbTreeNode *z)
     }
   }
 }
+
+ClintRbTreeNode *clint_tree_first(ClintRbTreeNode *tree)
+{
+  if (tree != NULL) {
+    while (tree->left != NULL)
+      tree = tree->left;
+  }
+  return tree;
+}
+
+ClintRbTreeNode *clint_tree_next(ClintRbTreeNode *tree)
+{
+  if (tree != NULL) {
+    /* Traverse right branch next. */
+    if (tree->right != NULL)
+      return clint_tree_first(tree->right);
+    /* Finished. */
+    if (tree->parent == NULL)
+      return NULL;
+    /* Finished left branch; parent next. */
+    if (tree == tree->parent->left)
+      return tree->parent;
+    /* Finished right branch; exit all right branches. */
+    while (tree == tree->parent->right) {
+      tree = tree->parent;
+      if (tree->parent == NULL)
+        return NULL;
+    }
+    /* If we get here, exit one left branch. */
+    tree = tree->parent;
+  }
+  return tree;
+}

@@ -31,6 +31,10 @@
 #include "clint_config.h"
 #include "clint_data.h"
 #include "clint_log.h"
+#include "clint_obj.h"
+
+#include <ctype.h>
+#include <string.h>
 
 #ifdef __APPLE__
 
@@ -152,6 +156,10 @@ void clint_opencl_init()
   }
 #endif
 
+  if (clint_get_config(CLINT_LEAKS)) {
+    atexit(&clint_log_leaks_all);
+  }
+
   clint_log_describe();
 
   if (clint_get_config(CLINT_INFO)) {
@@ -184,4 +192,87 @@ void clint_opencl_enter()
 void clint_opencl_exit()
 {
   CLINT_ATOMIC_SUB(1, g_clint_thread_count);
+}
+
+static const char *g_clint_extension_name = "cl_CLINT_debugging";
+static const char *g_clint_embedded_extensions = "cles_khr_int64 cl_CLINT_debugging";
+
+void clint_extensions_modify(size_t len, char *s, size_t *ret_ptr)
+{
+  size_t ret;
+
+  if (clint_get_config(CLINT_ENABLED)) {
+    const char *new_exts = g_clint_extension_name;
+
+    if (clint_get_config(CLINT_EMBEDDED)) {
+      new_exts = g_clint_embedded_extensions;
+    }
+
+    /* Add clint extension to the string. */
+    if (ret_ptr != NULL) {
+      ret = *ret_ptr;
+    } else {
+      ret = strlen(s) + 1;
+    }
+    if (ret > 0) {
+      ret++;
+    }
+    ret += strlen(new_exts);
+    if (ret_ptr != NULL) {
+      *ret_ptr = ret;
+    }
+    if (s != NULL && len >= ret) {
+      size_t slen = strlen(s);
+      if (slen > 0 && slen+1 < len) {
+        s[slen++] = ' ';
+      }
+#if defined(WIN32)
+      strcpy_s(s + slen, len - slen, new_exts);
+#else
+      strcpy(s + slen, new_exts);
+#endif
+      slen += strlen(new_exts);
+      if (slen >= len) {
+        slen = len-1;
+      }
+      s[slen] = 0;
+
+      /* Filter any disabled extensions. */
+      /* To avoid filtering during length queries, we pad but don't adjust the length. */
+      if (clint_get_config(CLINT_DISABLE_EXTENSION)) {
+        const char *exts_src = clint_get_config_string(CLINT_DISABLE_EXTENSION);
+        if (exts_src != NULL) {
+          char *exts;
+          char *match;
+          if ((exts = strdup(exts_src)) != NULL) {
+            size_t i, j;
+            for (i = 0; exts[i] != 0; i++) {
+              while (isspace(exts[i]))
+                i++;
+              for (j = i; exts[j] != 0 && !isspace(exts[j]); j++) {
+              }
+              exts[j] = 0;
+              match = strstr(s, exts+i);
+              while (match != NULL && match[j-i] != 0 && !isspace(match[j-i])) {
+                /* We found a longer extension.  Keep looking. */
+                match = strstr(match+1, exts+i);
+              }
+              if (match != NULL) {
+                const char *next = match + j - i;
+                while (*next != 0 && isspace(*next)) {
+                  next++;
+                }
+                /* The strings may overlay so use memmove not strcpy. */
+                memmove(match, next, s + len - next);
+                /* And zero the extra space. */
+                memset(s + len - (next - match), 0, next - match);
+              }
+              i = j;
+            }
+            free(exts);
+          }
+        }
+      }
+    }
+  }
 }

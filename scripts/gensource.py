@@ -28,6 +28,14 @@ def pointer_name(name):
 def typedef_name(name):
     return 'CLINT_' + name.upper() + '_FN'
 
+def remove_prefix(s, sub):
+    if s[:len(sub)] == sub:
+        return s[len(sub):]
+    return s
+
+def has_prefix(s, sub):
+    return s[:len(sub)] == sub
+
 def gen_top(out):
     out.write('/* AUTOMATICALLY GENERATED: DO NO EDIT */\n')
     out.write('#include "clint_data.h"\n')
@@ -71,10 +79,7 @@ def gen_typedef(out, f):
     out.write('typedef %s\n' % proto)
 
 def gen_type_name(t):
-    if t[:3] == 'cl_':
-        return t[3:]
-    else:
-        return t
+    return remove_prefix(t, 'cl_')
 
 def gen_type_arg(t):
     if t == 'error':
@@ -85,6 +90,9 @@ def gen_type_arg(t):
         return 'cl_int'
     else:
         return t
+
+def is_type_const(t):
+    return has_prefix(t, 'const ')
 
 gen_format_str_map = {
     'int': '%d',
@@ -174,7 +182,7 @@ def append_type_map(typeMap, key, value):
         typeMap[key] = [value]
 
 def fix_type_name(type_name):
-    if type_name[:6] == 'cl_d3d':
+    if has_prefix(type_name, 'cl_d3d'):
         # fix errors in the comments that should use _khr
         if 'device_source' in type_name or 'device_set' in type_name:
             if type_name[-3:] == '_nv':
@@ -190,8 +198,7 @@ def gen_format_struct_name(name):
     name = string.strip(name)
     if name[-1] == '*':
         name = name[:-1]
-    if name[:6] == 'const ':
-        name = name[6:]
+    name = remove_prefix(name, 'const ')
     name = string.strip(name)
     return name
 
@@ -199,7 +206,7 @@ def gen_format_str(t, typeMap, funcName, inout):
     t = string.strip(t)
     if t == 'cl_int' and funcName == 'clSetUserEventStatus':
         t = 'execution_status'
-    if (gen_format_struct_name(t) in gen_format_struct_map) and (inout != 0 or t[:6] == 'const ') and (inout != 1 or t[:6] != 'const '):
+    if (gen_format_struct_name(t) in gen_format_struct_map) and (inout != 0 or is_type_const(t)) and (inout != 1 or not is_type_const(t)):
         return '%s'
     if t in typeMap:
         return '%s'
@@ -215,7 +222,7 @@ def gen_format_arg(t, name, typeMap, funcName, inout):
     t = string.strip(t)
     if t == 'cl_int' and funcName == 'clSetUserEventStatus':
         t = 'execution_status'
-    if (gen_format_struct_name(t) in gen_format_struct_map) and (inout != 0 or t[:6] == 'const ') and (inout != 1 or t[:6] != 'const '):
+    if (gen_format_struct_name(t) in gen_format_struct_map) and (inout != 0 or is_type_const(t)) and (inout != 1 or not is_type_const(t)):
         return 'clint_string_%s(%s)' % (gen_type_name(gen_format_struct_name(t)), name)
     if inout == 1 and '*' in t and (not '(' in t) and gen_format_struct_name(t) != 'void':
         return '(%s ? *%s : 0)' % (name, name)
@@ -225,54 +232,203 @@ def gen_format_arg(t, name, typeMap, funcName, inout):
         return name
     return 'clint_string_%s(%s)' % (gen_type_name(t), name)
 
-gen_resources_list = string.split('cl_context cl_command_queue cl_mem cl_program cl_kernel cl_event cl_sampler')
+def gen_mem_sharing(funcName):
+    if 'GL' in funcName:
+        sharing = 'ClintObjectSharing_gl'
+    elif 'D3D9' in funcName:
+        sharing = 'ClintObjectSharing_d3d9'
+    elif 'D3D10' in funcName:
+        sharing = 'ClintObjectSharing_d3d10'
+    elif 'D3D11' in funcName:
+        sharing = 'ClintObjectSharing_d3d11'
+    else:
+        sharing = 'ClintObjectSharing_none'
+    return sharing
+
+gen_objects_list = string.split('cl_context cl_command_queue cl_mem cl_program cl_kernel cl_event cl_sampler cl_device_id')
 
 def gen_check_input_arg(arg, args, funcName):
-    if '*' in arg[0] and gen_format_struct_name(arg[0]) in gen_resources_list:
-        if arg[0][:6] != 'const ':
+    if '*' in arg[0] and gen_format_struct_name(arg[0]) in gen_objects_list:
+        if not is_type_const(arg[0]):
             return None
         type_name = gen_type_name(gen_format_struct_name(arg[0]))
         i = args.index(arg)
-        if i > 0 and args[i-1][0] in ('cl_uint', 'size_t') and args[i-1][1][:4] == 'num_':
+        if i > 0 and args[i-1][0] in ('cl_uint', 'size_t') and has_prefix(args[i-1][1], 'num_'):
             return 'clint_check_input_%s(%s, %s)' % (type_name+'s', args[i-1][1], arg[1])
-    if not arg[0] in gen_resources_list:
+    if not arg[0] in gen_objects_list:
         return None
-    if funcName[:8] == 'clRetain':
+    if has_prefix(funcName, 'clRetain'):
         return 'clint_retain_%s(%s)' % (gen_type_name(arg[0]), arg[1])
-    if funcName[:9] == 'clRelease':
+    if has_prefix(funcName, 'clRelease'):
         return 'clint_release_%s(%s)' % (gen_type_name(arg[0]), arg[1])
+    if arg[0] == 'cl_device_id':
+        # Only clRetainDevice and clReleaseDevice require a subdevice.
+        return None
     return 'clint_check_input_%s(%s)' % (gen_type_name(arg[0]), arg[1])
 
 def gen_check_output_arg(arg, args, funcName, pointers_only=1):
-    if '*' in arg[0] and gen_format_struct_name(arg[0]) in gen_resources_list:
-        if arg[0][:6] == 'const ':
+    check_args = ()
+    for i in (('cl_context', 'ClintObjectType_context'),
+              ('cl_command_queue', 'ClintObjectType_command_queue'),
+              ('cl_mem', 'ClintObjectType_mem'),
+              ('cl_program', 'ClintObjectType_program'),
+              ('cl_device_id', 'ClintObjectType_device')):
+        check_args = filter(lambda a, i=i: a[0] == i[0], args)
+        if check_args:
+            check_args = (check_args[0][1], i[1])
+            break
+    if gen_format_struct_name(arg[0]) == 'cl_context':
+        check_args = ('NULL', 'ClintObjectType_none')
+    if gen_format_struct_name(arg[0]) == 'cl_device_id':
+        # Only track subdevices.
+        if funcName != 'clCreateSubDevices':
+            return None
+        check_args = ('NULL', 'ClintObjectType_none')
+    if gen_format_struct_name(arg[0]) == 'cl_command_queue' and funcName == 'clCreateContextAndCommandQueueAPPLE':
+        check_args = ('*'+args[-2][1], 'ClintObjectType_context')
+    if gen_format_struct_name(arg[0]) == 'cl_mem':
+        if has_prefix(funcName, 'clCreateFrom'):
+            sharing = gen_mem_sharing(funcName)
+        else:
+            sharing = 'ClintObjectSharing_none'
+        flag_args = filter(lambda a: a[0] == 'cl_mem_flags', args)
+        if flag_args:
+            check_args = tuple(check_args) + (flag_args[-1][1], sharing)
+    if '*' in arg[0] and gen_format_struct_name(arg[0]) in gen_objects_list:
+        if is_type_const(arg[0]):
             return None
         type_name = gen_type_name(gen_format_struct_name(arg[0]))
         i = args.index(arg)
-        if i > 0 and args[i-1][0] in ('cl_uint', 'size_t') and args[i-1][1][:4] == 'num_':
-            return 'clint_check_input_%s(%s, %s)' % (type_name+'s', args[i-1][1], arg[1])
-        return 'if (%s)\n\tclint_check_output_%s(*%s)' % (arg[1], type_name, arg[1])
+        if i > 0 and args[i-1][0] in ('cl_uint', 'size_t') and has_prefix(args[i-1][1], 'num_'):
+            return 'clint_check_output_%s(%s)' % (type_name+'s', string.join((args[i-1][1], arg[1]) + tuple(check_args), ", "))
+        return 'if (%s)\n\t\tclint_check_output_%s(%s)' % (arg[1], type_name, string.join(('*'+arg[1],) + tuple(check_args), ", "))
     if pointers_only:
         return None
-    if not arg[0] in gen_resources_list:
+    if not arg[0] in gen_objects_list:
         return None
-    return 'clint_check_output_%s(%s)' % (gen_type_name(arg[0]), arg[1])
+    return 'clint_check_output_%s(%s)' % (gen_type_name(arg[0]), string.join((arg[1],) + tuple(check_args), ", "))
+
+profile_funcs = ('clEnqueueNDRangeKernel', 'clEnqueueTask', 'clEnqueueNativeKernel')
+
+def is_profile_all(name, args):
+    return has_prefix(name, 'clEnqueue') and filter(lambda a: a[0] == 'cl_event *', args)
+
+def gen_func_has_errcode(f):
+    proto, name, r, args, core = f
+    return (r == 'cl_int' or (args and args[-1][0] in ('cl_int *', 'int *')))
+
+def gen_func_errcode(f):
+    proto, name, r, args, core = f
+    return ((r == 'cl_int') and 'retval') or '*'+args[-1][1]
+
+def gen_custom_func_decl(out, f, typeMap):
+    proto, name, r, args, core = f
+    if is_profile_all(name, args):
+        out.write('\tcl_event profile_event = NULL;\n')
+
+def gen_custom_func_begin(out, f, typeMap):
+    proto, name, r, args, core = f
+    if 'Create' in name or 'Retain' in name or 'Release' in name:
+        out.write('\tclint_opencl_enter();\n')
+    if name == 'clSetKernelArg':
+        out.write('\tclint_kernel_enter(%s);\n' % args[0][1])
+    if ('Image' in name or 'Texture' in name) and not name in ('clGetSupportedImageFormats',):
+        check = 'clint_get_config(CLINT_DISABLE_IMAGE)'
+        if '3D' in name:
+            check += ' || clint_get_config(CLINT_EMBEDDED)'
+        elif name == 'clCreateImage':
+            check += ' || (clint_get_config(CLINT_EMBEDDED) && (%s & CL_MEM_OBJECT_IMAGE3D) != 0)' % args[1][1]
+        out.write('\tif (%s) {\n' % check)
+        if r == 'cl_int':
+            out.write('\t\tretval = CL_INVALID_OPERATION;\n')
+        else:
+            out.write('\t\t*%s = CL_INVALID_OPERATION;\n' % args[-1][1])
+            out.write('\t\tretval = NULL;\n')
+        out.write('\t} else /* okay to call real function */\n')
+    if is_profile_all(name, args):
+        config_value = 'CLINT_PROFILE_ALL'
+        if name in profile_funcs:
+            config_value = 'CLINT_PROFILE'
+        arg = filter(lambda a: a[0] == 'cl_event *', args)[-1]
+        out.write('\tif (clint_get_config(%s)) {\n' % config_value)
+        out.write('\t\tif (%s == NULL) %s = &profile_event;\n' % (arg[1], arg[1]))
+        out.write('\t}\n')
+    if has_prefix(name, 'clCreate') and 'CommandQueue' in name:
+        arg = filter(lambda a: a[0] == 'cl_command_queue_properties', args)[-1]
+        out.write('\tif (clint_get_config(CLINT_PROFILE))\n')
+        out.write('\t\t%s |= CL_QUEUE_PROFILING_ENABLE;\n' % arg[1])
+    if has_prefix(name, 'clEnqueueAcquire'):
+        sharing = gen_mem_sharing(name)
+        out.write('\tclint_acquire_shared_mem(%s, %s, %s);\n' % (args[1][1], args[2][1], sharing))
+    if has_prefix(name, 'clEnqueueRelease'):
+        sharing = gen_mem_sharing(name)
+        out.write('\tclint_release_shared_mem(%s, %s, %s);\n' % (args[1][1], args[2][1], sharing))
+
+def gen_custom_func_exit(out, f, typeMap):
+    proto, name, r, args, core = f
+    if 'Create' in name or 'Retain' in name or 'Release' in name:
+        out.write('\tclint_opencl_exit();\n')
+    if name == 'clSetKernelArg':
+        out.write('\tclint_kernel_exit(%s);\n' % args[0][1])
+    if name in ('clGetPlatformInfo', 'clGetDeviceInfo'):
+        if name == 'clGetPlatformInfo':
+            param_name = 'CL_PLATFORM_EXTENSIONS'
+        else:
+            param_name = 'CL_DEVICE_EXTENSIONS'
+        out.write('\tif (clint_get_config(CLINT_ENABLED) && %s == %s) {\n' % (args[1][1], param_name))
+        out.write('\t\tclint_extensions_modify(%s, (char*)%s, %s);\n' % (args[2][1], args[3][1], args[4][1]))
+        out.write('\t}\n')
+        if name == 'clGetPlatformInfo':
+            # Don't worry about calling the real clGetPlatformInfo
+            # because EMBEDDED_PROFILE is longer than FULL_PROFILE.
+            profile = 'EMBEDDED_PROFILE'
+            out.write('\tif (clint_get_config(CLINT_EMBEDDED) && %s == CL_PLATFORM_PROFILE) {\n' % args[1][1])
+            out.write('\t\tif (%s != NULL)\n' % args[4][1])
+            out.write('\t\t\t*%s = %d;\n' % (args[4][1], len(profile)+1))
+            out.write('\t\tif (%s >= %d && %s != NULL)\n' % (args[2][1], len(profile)+1, args[3][1]))
+            out.write('\t\t\tmemcpy(%s, \"%s\", %d);\n' % (args[3][1], profile, len(profile)+1))
+            out.write('\t}\n')
+        if name == 'clGetDeviceInfo':
+            out.write('\tif (clint_get_config(CLINT_DISABLE_IMAGE) && %s > 0 && %s != NULL) {\n' % (args[2][1], args[3][1]))
+            out.write('\t\tswitch (%s) {\n' % args[1][1])
+            out.write('\t\tcase CL_DEVICE_IMAGE_SUPPORT:\n')
+            out.write('\t\tcase CL_DEVICE_MAX_READ_IMAGE_ARGS:\n')
+            out.write('\t\tcase CL_DEVICE_MAX_WRITE_IMAGE_ARGS:\n')
+            out.write('\t\tcase CL_DEVICE_IMAGE2D_MAX_WIDTH:\n')
+            out.write('\t\tcase CL_DEVICE_IMAGE2D_MAX_HEIGHT:\n')
+            out.write('\t\tcase CL_DEVICE_IMAGE3D_MAX_WIDTH:\n')
+            out.write('\t\tcase CL_DEVICE_IMAGE3D_MAX_HEIGHT:\n')
+            out.write('\t\tcase CL_DEVICE_IMAGE3D_MAX_DEPTH:\n')
+            out.write('\t\tcase CL_DEVICE_IMAGE_MAX_BUFFER_SIZE:\n')
+            out.write('\t\tcase CL_DEVICE_IMAGE_MAX_ARRAY_SIZE:\n')
+            out.write('\t\tcase CL_DEVICE_MAX_SAMPLERS:\n')
+            out.write('\t\t\tmemset(%s, 0, %s);\n' % (args[3][1], args[2][1]))
+            out.write('\t\t\tbreak;\n')
+            out.write('\t\t}\n')
+            out.write('\t} else if (clint_get_config(CLINT_EMBEDDED) && %s > 0 && %s != NULL) {\n' % (args[2][1], args[3][1]))
+            out.write('\t\tswitch (%s) {\n' % args[1][1])
+            out.write('\t\tcase CL_DEVICE_IMAGE3D_MAX_WIDTH:\n')
+            out.write('\t\tcase CL_DEVICE_IMAGE3D_MAX_HEIGHT:\n')
+            out.write('\t\tcase CL_DEVICE_IMAGE3D_MAX_DEPTH:\n')
+            out.write('\t\t\tmemset(%s, 0, %s);\n' % (args[3][1], args[2][1]))
+            out.write('\t\t\tbreak;\n')
+            out.write('\t\t}\n')
+            out.write('\t}\n')
+    if is_profile_all(name, args):
+        config_value = 'CLINT_PROFILE_ALL'
+        if name in profile_funcs:
+            config_value = 'CLINT_PROFILE'
+        arg = filter(lambda a: a[0] == 'cl_event *', args)[-1]
+        out.write('\tif (clint_get_config(%s))\n' % config_value)
+        out.write('\t\t%s = clint_log_profile("%s", *%s);\n' % (gen_func_errcode(f), name, arg[1]))
+        out.write('\tif (profile_event != NULL)\n')
+        out.write('\t\tCLINTFUNC(clReleaseEvent)(profile_event);\n')
 
 def gen_func(out, f, typeMap):
     proto, name, r, args, core = f
     proto = pat_comment.sub(r'\1', proto)
     proto = pat_suffix.sub('', proto)
     proto = proto.replace(name, 'F(%s)' % name)
-
-    threadCalls = [('clint_opencl', '')]
-    # Only create, retain, and release functions are thread-safe in OpenCL 1.0
-    for i in ("Create", "Retain", "Release"):
-        if i in name:
-            threadCalls = []
-            break
-    # Thread-safe issues in OpenCL 1.1
-    if name == 'clSetKernelArg':
-        threadCalls.append(('clint_kernel', args[0][1]))
 
     fmt = name + '(' + string.join(map(lambda a: a[1] + '=' + gen_format_str(a[0], typeMap, name, 0), args), ", ") + ')'
     call_args = string.join(map(lambda a: a[1], args), ", ")
@@ -281,31 +437,32 @@ def gen_func(out, f, typeMap):
     out.write('\tClintAutopool pool;\n')
     if r != 'void':
         out.write('\t%s retval;\n' % r)
-    do_errcode = (r == 'cl_int' or (args and args[-1][0] in ('cl_int *', 'int *')))
+    do_errcode = gen_func_has_errcode(f)
     if r != 'cl_int' and do_errcode:
         out.write('\tcl_int errcode_local;\n')
+    gen_custom_func_decl(out, f, typeMap)
     out.write('\tclint_init();\n')
     out.write('\tclint_autopool_begin(&pool);\n')
     out.write('\tif (clint_get_config(CLINT_TRACE))\n')
     out.write('\t\tclint_log(%s);\n' % string.join(['"%s"' % fmt] + map(lambda a: gen_format_arg(a[0], a[1], typeMap, name, 0), args), ", "))
-    for prefix in threadCalls:
-        out.write('\t%s_enter(%s);\n' % prefix)
     for a in args:
-        f = gen_check_input_arg(a, args, name)
-        if f:
-            out.write('\t%s;\n' % f)
+        check = gen_check_input_arg(a, args, name)
+        if check:
+            out.write('\t%s;\n' % check)
     if r != 'cl_int' and do_errcode:
         out.write('\tif (%s == NULL) %s = &errcode_local;\n' % (args[-1][1], args[-1][1]))
+    gen_custom_func_begin(out, f, typeMap)
     if core:
-        call_str = pointer_name(name)
+        call_str = 'CLINTFUNC(%s)' % name
     else:
-        call_str = '((%s)%s("%s"))' % (typedef_name(name), pointer_name('clGetExtensionFunctionAddress'), name)
+        call_str = '((%s)CLINTFUNC(%s)("%s"))' % (typedef_name(name), 'clGetExtensionFunctionAddress', name)
     if r == 'void':
         out.write('\t%s(%s);' % (call_str, call_args))
     else:
         out.write('\tretval = %s(%s);\n' % (call_str, call_args))
+    gen_custom_func_exit(out, f, typeMap)
     if do_errcode:
-        errcode = ((r == 'cl_int') and 'retval') or '*'+args[-1][1]
+        errcode = gen_func_errcode(f)
         out.write('\tif (%s != CL_SUCCESS && clint_get_config(CLINT_ERRORS)) {\n' % errcode)
         out.write('\t\tclint_log("ERROR in %s: %%s", clint_string_error(%s));\n' % (name, errcode))
         out.write('\t\tclint_log_abort();\n')
@@ -317,15 +474,13 @@ def gen_func(out, f, typeMap):
         out_fmt = name + ' returned ' + string.join(map(lambda a: ((a[1] == 'retval') and gen_format_str(a[0], typeMap, name, 1)) or (a[1] + '=' + gen_format_str(string.strip(a[0][:-1]), typeMap, name, 1)), out_args), " ")
         out.write('\tif (clint_get_config(CLINT_TRACE))\n')
         out.write('\t\tclint_log(%s);\n' % string.join(['"%s"' % out_fmt] + map(lambda a: ((a[1] == 'retval') and 'retval') or gen_format_arg(a[0], a[1], typeMap, name, 1), out_args), ", "))
-    for prefix in threadCalls:
-        out.write('\t%s_exit(%s);\n' % prefix)
     for a in args:
-        f = gen_check_output_arg(a, args, name)
-        if f:
-            out.write('\t%s;\n' % f)
-    f = gen_check_output_arg((r, 'retval'), args, name, 0)
-    if f:
-        out.write('\t%s;\n' % f)
+        check = gen_check_output_arg(a, args, name)
+        if check:
+            out.write('\t%s;\n' % check)
+    check = gen_check_output_arg((r, 'retval'), args, name, 0)
+    if check:
+        out.write('\t%s;\n' % check)
     out.write('\tclint_autopool_end(&pool);\n')
     if r != 'void':
         out.write('\treturn retval;\n')
@@ -475,26 +630,26 @@ def gen_type_source(file, typeMap):
         file.write('{\n')
         if typeMap[t] and ('<<' in typeMap[t][0][1]):
             # bitfield
-            file.write('  const char *s = "";\n')
-            file.write('  %s v0 = v;\n' % gen_type_arg(t))
-            file.write('  if (v == 0)\n')
-            file.write('    return s;\n')
+            file.write('\tconst char *s = "";\n')
+            file.write('\t%s v0 = v;\n' % gen_type_arg(t))
+            file.write('\tif (v == 0)\n')
+            file.write('\t\treturn s;\n')
             for i in typeMap[t]:
-                file.write('  if ((v & %s) != 0) { /* %s */\n' % i)
-                file.write('    v &= ~(%s);\n' % i[0])
-                file.write('    s = clint_string_join(s, "%s", " | ");\n' % i[0])
-                file.write('  }\n')
-            file.write('  if (v != 0)\n')
-            file.write('    return clint_string_sprintf("Unknown %s 0x%%X", (unsigned int)v0);\n' % t)
-            file.write('  return s;\n')
+                file.write('\tif ((v & %s) != 0) { /* %s */\n' % i)
+                file.write('\t\tv &= ~(%s);\n' % i[0])
+                file.write('\t\ts = clint_string_join(s, "%s", " | ");\n' % i[0])
+                file.write('\t}\n')
+            file.write('\tif (v != 0)\n')
+            file.write('\t\treturn clint_string_sprintf("Unknown %s 0x%%X", (unsigned int)v0);\n' % t)
+            file.write('\treturn s;\n')
         else:
-            file.write('  switch (v) {\n')
+            file.write('\tswitch (v) {\n')
             for i in typeMap[t]:
-                file.write('  case %s: /* %s */\n' % i)
-                file.write('    return "%s";\n' % i[0])
-            file.write('  default:\n')
-            file.write('    return clint_string_sprintf("Unknown %s 0x%%X", (unsigned int)v);\n' % t)
-            file.write('  }\n')
+                file.write('\tcase %s: /* %s */\n' % i)
+                file.write('\t\treturn "%s";\n' % i[0])
+            file.write('\tdefault:\n')
+            file.write('\t\treturn clint_string_sprintf("Unknown %s 0x%%X", (unsigned int)v);\n' % t)
+            file.write('\t}\n')
         file.write('}\n\n')
     types = typeMap.keys()
     types.sort()
@@ -505,20 +660,34 @@ def gen_type_source(file, typeMap):
         args = string.join(['"%s"' % fmt] + [gen_format_arg(v[0], 'v->' + v[1], typeMap, '', -1) for v in gen_format_struct_map[t]], ', ')
         file.write('const char *clint_string_%s(const %s *v)\n' % (gen_type_name(t), gen_type_arg(t)))
         file.write('{\n')
-        file.write('  if (v == NULL)\n')
-        file.write('    return "NULL";\n')
-        file.write('  return clint_string_sprintf(%s);\n' % args)
+        file.write('\tif (v == NULL)\n')
+        file.write('\t\treturn "NULL";\n')
+        file.write('\treturn clint_string_sprintf(%s);\n' % args)
         file.write('}\n\n')
     gen_postfix(file)
 
 def gen_func_source(file, funcs, typeMap):
+    file.write('#define CL_USE_DEPRECATED_OPENCL_1_0_APIS\n')
+    file.write('#define CL_USE_DEPRECATED_OPENCL_1_1_APIS\n')
+    file.write('\n')
     gen_top(file)
+    file.write('\n')
     file.write('#include "clint.h"\n')
     file.write('#include "clint_config.h"\n')
-    file.write('#include "clint_res.h"\n')
+    file.write('#include "clint_obj.h"\n')
     file.write('#include "clint_opencl_types.h"\n')
     file.write('\n')
+    file.write('#include <string.h>\n')
+    file.write('\n')
     gen_prefix(file)
+    file.write('\n')
+    file.write('#ifndef CL_DEVICE_IMAGE_MAX_BUFFER_SIZE\n')
+    file.write('#define CL_DEVICE_IMAGE_MAX_BUFFER_SIZE 0x1040\n')
+    file.write('#endif\n')
+    file.write('#ifndef CL_DEVICE_IMAGE_MAX_ARRAY_SIZE\n')
+    file.write('#define CL_DEVICE_IMAGE_MAX_ARRAY_SIZE 0x1041\n')
+    file.write('#endif\n')
+    file.write('\n')
     for f in funcs:
         gen_typedef(file, f)
     file.write('\n')
@@ -529,8 +698,26 @@ def gen_func_source(file, funcs, typeMap):
     file.write('#else /*__APPLE__*/\n')
     for f in funcs:
         gen_define_pointers(file, f)
-    file.write('#define F(a) clint_ ## a\n')
+    file.write('#define F(a) clint_##a\n')
     file.write('#endif /*__APPLE__*/\n')
+    file.write('\n')
+    file.write('#define CLINTFUNC(a) clint_##a##_ptr\n')
+    file.write('\n')
+    file.write('static cl_int clint_log_profile(const char *name, cl_event event)\n')
+    file.write('{\n')
+    file.write('\tcl_ulong start, end;\n')
+    file.write('\tcl_int err;\n')
+    file.write('\tdouble elapsed;\n')
+    file.write('\terr = CLINTFUNC(clWaitForEvents)(1, &event);\n')
+    file.write('\tif (!err) return err;\n')
+    file.write('\terr = CLINTFUNC(clGetEventProfilingInfo)(event, CL_PROFILING_COMMAND_END, sizeof(cl_ulong), &end, NULL);\n')
+    file.write('\tif (!err) return err;\n')
+    file.write('\terr = CLINTFUNC(clGetEventProfilingInfo)(event, CL_PROFILING_COMMAND_START, sizeof(cl_ulong), &start, NULL);\n')
+    file.write('\tif (!err) return err;\n')
+    file.write('\telapsed = (double)(end - start) * 1.0e-9;\n')
+    file.write('\tclint_log("PROFILE: %s %f", name, elapsed);\n')
+    file.write('\treturn err;\n')
+    file.write('}\n')
     file.write('\n')
     file.write('static void* clint_dll = NULL;\n')
     file.write('static void clint_init(void)\n')
@@ -586,7 +773,7 @@ while i < len(sys.argv):
         continue
     if incdir and not os.path.isabs(filename):
         filename = os.path.join(incdir, filename)
-    if not os.path.exists(filename) and os.path.basename(filename) in ('cl_d3d10.h', 'cl_d3d11.h'):
+    if not os.path.exists(filename) and os.path.basename(filename) in ('cl_dx9_media_sharing.h', 'cl_d3d10.h', 'cl_d3d11.h'):
         continue
     file = open(filename, 'r')
     scanFile(file, filename, funcs, typeMap, typeIncludes)

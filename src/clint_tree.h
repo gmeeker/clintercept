@@ -44,11 +44,12 @@ typedef struct ClintRbTreeNode {
 
 void clint_rb_tree_left_rotate(ClintRbTreeNode **tree, ClintRbTreeNode *x);
 void clint_rb_tree_right_rotate(ClintRbTreeNode **tree, ClintRbTreeNode *x);
-void clint_tree_insert(ClintRbTreeNode **tree, ClintRbTreeNode *z);
 void clint_rb_tree_insert(ClintRbTreeNode **tree, ClintRbTreeNode *x);
 ClintRbTreeNode *clint_tree_successor(ClintRbTreeNode *x);
 void clint_rb_tree_delete_fixup(ClintRbTreeNode **tree, ClintRbTreeNode *x, ClintRbTreeNode *p);
 void clint_rb_tree_delete(ClintRbTreeNode **tree, ClintRbTreeNode *z);
+ClintRbTreeNode *clint_tree_first(ClintRbTreeNode *tree);
+ClintRbTreeNode *clint_tree_next(ClintRbTreeNode *tree);
 
 #define CLINT_TREE_ELEMS(T, KEY)                                    \
   union {                                                           \
@@ -59,6 +60,8 @@ void clint_rb_tree_delete(ClintRbTreeNode **tree, ClintRbTreeNode *z);
 
 #define CLINT_DEFINE_TREE_FUNCS(type, KEY)                          \
 type *clint_tree_find_##type(type *tree, KEY key);                  \
+type *clint_tree_first_##type(type *tree);                          \
+type *clint_tree_next_##type(type *tree);                           \
 void clint_tree_insert_##type(type **tree, KEY key, type *z);       \
 void clint_tree_delete_##type(type **tree, KEY key);                \
 void clint_tree_erase_##type(type **tree, type *x);
@@ -75,6 +78,16 @@ type *clint_tree_find_##type(type *tree, KEY key)                   \
       tree = tree->_node.pointers.right;                            \
   }                                                                 \
   return tree;                                                      \
+}                                                                   \
+                                                                    \
+type *clint_tree_first_##type(type *tree)                           \
+{                                                                   \
+  return (type*)clint_tree_first(&tree->_node.rb_node);             \
+}                                                                   \
+                                                                    \
+type *clint_tree_next_##type(type *tree)                            \
+{                                                                   \
+  return (type*)clint_tree_next(&tree->_node.rb_node);              \
 }                                                                   \
                                                                     \
 void clint_tree_insert_##type(type **tree, KEY key, type *z)        \

@@ -29,6 +29,8 @@
 #ifndef _CLINT_H_
 #define _CLINT_H_
 
+#include <stdlib.h>
+
 #if defined(WIN32)
 
 #include <tchar.h>
@@ -52,6 +54,8 @@ void clint_opencl_unload(void *dll);
 
 void clint_opencl_enter();
 void clint_opencl_exit();
+
+void clint_extensions_modify(size_t len, char *s, size_t *ret);
 
 #ifdef __cplusplus
 }
