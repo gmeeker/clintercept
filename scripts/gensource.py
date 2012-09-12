@@ -357,12 +357,18 @@ def gen_custom_func_begin(out, f, typeMap):
         arg = filter(lambda a: a[0] == 'cl_command_queue_properties', args)[-1]
         out.write('\tif (clint_get_config(CLINT_PROFILE))\n')
         out.write('\t\t%s |= CL_QUEUE_PROFILING_ENABLE;\n' % arg[1])
+    if has_prefix(name, 'clEnqueueMap'):
+        arg = filter(lambda a: a[0] == 'cl_mem', args)[-1]
+        out.write('\tclint_retain_mem(%s);\n' % arg[1])
+    if name == 'clEnqueueUnmapMemObject':
+        arg = filter(lambda a: a[0] == 'cl_mem', args)[-1]
+        out.write('\tclint_release_mem(%s);\n' % arg[1])
     if has_prefix(name, 'clEnqueueAcquire'):
         sharing = gen_mem_sharing(name)
-        out.write('\tclint_acquire_shared_mem(%s, %s, %s);\n' % (args[1][1], args[2][1], sharing))
+        out.write('\tclint_acquire_shared_mems(%s, %s, %s);\n' % (args[1][1], args[2][1], sharing))
     if has_prefix(name, 'clEnqueueRelease'):
         sharing = gen_mem_sharing(name)
-        out.write('\tclint_release_shared_mem(%s, %s, %s);\n' % (args[1][1], args[2][1], sharing))
+        out.write('\tclint_release_shared_mems(%s, %s, %s);\n' % (args[1][1], args[2][1], sharing))
 
 def gen_custom_func_exit(out, f, typeMap):
     proto, name, r, args, core = f
@@ -474,13 +480,24 @@ def gen_func(out, f, typeMap):
         out_fmt = name + ' returned ' + string.join(map(lambda a: ((a[1] == 'retval') and gen_format_str(a[0], typeMap, name, 1)) or (a[1] + '=' + gen_format_str(string.strip(a[0][:-1]), typeMap, name, 1)), out_args), " ")
         out.write('\tif (clint_get_config(CLINT_TRACE))\n')
         out.write('\t\tclint_log(%s);\n' % string.join(['"%s"' % out_fmt] + map(lambda a: ((a[1] == 'retval') and 'retval') or gen_format_arg(a[0], a[1], typeMap, name, 1), out_args), ", "))
+    checks = ''
+    if do_errcode:
+        indent = '\t\t'
+    else:
+        indent = '\t'
     for a in args:
         check = gen_check_output_arg(a, args, name)
         if check:
-            out.write('\t%s;\n' % check)
+            checks += '%s%s;\n' % (indent, check)
     check = gen_check_output_arg((r, 'retval'), args, name, 0)
     if check:
-        out.write('\t%s;\n' % check)
+        checks += '%s%s;\n' % (indent, check)
+    if checks:
+        if do_errcode:
+            errcode = gen_func_errcode(f)
+            out.write('\tif (%s == CL_SUCCESS) {\n' % errcode)
+            out.write(checks)
+            out.write('\t}\n')
     out.write('\tclint_autopool_end(&pool);\n')
     if r != 'void':
         out.write('\treturn retval;\n')

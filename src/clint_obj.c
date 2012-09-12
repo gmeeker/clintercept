@@ -196,15 +196,15 @@ void clint_acquire_shared_mem(cl_mem v, ClintObjSharing sharing)
 {
 }
 
-void clint_acquire_shared_mems(cl_uint num, const cl_mem *v, ClintObjSharing sharing);
+void clint_acquire_shared_mems(cl_uint num, const cl_mem *v, ClintObjSharing sharing)
 {
 }
 
-void clint_release_shared_mem(cl_mem v, ClintObjSharing sharing);
+void clint_release_shared_mem(cl_mem v, ClintObjSharing sharing)
 {
 }
 
-void clint_release_shared_mems(cl_uint num, const cl_mem *v, ClintObjSharing sharing);
+void clint_release_shared_mems(cl_uint num, const cl_mem *v, ClintObjSharing sharing)
 {
 }
 
