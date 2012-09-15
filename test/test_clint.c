@@ -40,6 +40,8 @@
 #include <windows.h>
 #else
 #include <pthread.h>
+#include <signal.h>
+#include <setjmp.h>
 #endif
 
 struct Program {
@@ -168,6 +170,36 @@ static void testThread(cl_context context, cl_command_queue queue)
   destroyProgram(&program);
 }
 
+#if defined(WIN32)
+#define START_BAD_ACCESS() __try {
+#define END_BAD_ACCESS()
+  } __except (EXCEPTION_EXECUTE_HANDLER) {              \
+    fprintf(stderr, "Illegal memory access caught!\n"); \
+    return 0;                                           \
+  }
+#else
+static jmp_buf handle_sig_env;
+static void handle_sig(int v)
+{
+  siglongjmp(handle_sig_env, 1);
+}
+#define START_BAD_ACCESS()                                \
+{                                                         \
+  struct sigaction oldact, act;                           \
+  act.sa_handler = handle_sig;                            \
+  sigemptyset(&act.sa_mask);                              \
+  act.sa_flags = SA_RESETHAND;                            \
+  if (sigaction(SIGBUS, &act, &oldact) == 0) {            \
+    if (sigsetjmp(handle_sig_env, 1) == 0) {
+#define END_BAD_ACCESS()                                  \
+    } else {                                              \
+      fprintf(stderr, "Illegal memory access caught!\n"); \
+    }                                                     \
+  }                                                       \
+  sigaction(SIGBUS, &oldact, NULL);                       \
+}
+#endif
+
 static void testMapping(cl_context context, cl_command_queue queue)
 {
   const size_t size = 1024;
@@ -182,12 +214,20 @@ static void testMapping(cl_context context, cl_command_queue queue)
   }
   ptr = clEnqueueMapBuffer(queue, mem, CL_TRUE, CL_MAP_READ, 0, size, 0, NULL, NULL, &err);
   fprintf(stderr, "Reading past buffer...\n");
-  (void)((uint8_t*)ptr)[size];
+  START_BAD_ACCESS()
+  printf("%d\n", (int)((uint8_t*)ptr)[size]);
+  END_BAD_ACCESS()
   fprintf(stderr, "Writing read-only buffer...\n");
+  START_BAD_ACCESS()
   ((uint8_t*)ptr)[0] = 0;
+  END_BAD_ACCESS()
   if (err == CL_SUCCESS) {
-    clEnqueueUnmapMemObject(queue, mem, ptr, 0, NULL, &event);
+    err = clEnqueueUnmapMemObject(queue, mem, ptr, 0, NULL, &event);
+    if (err != CL_SUCCESS) {
+      return;
+    }
     err = clWaitForEvents(1, &event);
+    clReleaseEvent(event);
     if (err != CL_SUCCESS) {
       return;
     }
@@ -195,16 +235,26 @@ static void testMapping(cl_context context, cl_command_queue queue)
 
   ptr2 = clEnqueueMapBuffer(queue, mem, CL_TRUE, CL_MAP_WRITE, 0, size, 0, NULL, NULL, &err);
   fprintf(stderr, "Writing past buffer...\n");
+  START_BAD_ACCESS()
   ((uint8_t*)ptr2)[size] = 0;
+  END_BAD_ACCESS()
   fprintf(stderr, "Reading write-only buffer...\n");
-  (void)((uint8_t*)ptr2)[0];
+  START_BAD_ACCESS()
+  printf("%d\n", (int)((uint8_t*)ptr2)[0]);
+  END_BAD_ACCESS()
   if (err == CL_SUCCESS) {
-    clEnqueueUnmapMemObject(queue, mem, ptr2, 0, NULL, &event);
+    err = clEnqueueUnmapMemObject(queue, mem, ptr2, 0, NULL, &event);
+    if (err != CL_SUCCESS) {
+      return;
+    }
     err = clWaitForEvents(1, &event);
+    clReleaseEvent(event);
     if (err != CL_SUCCESS) {
       return;
     }
   }
+
+  clReleaseMemObject(mem);
 }
 
 static void testBounds(cl_context context, cl_command_queue queue)

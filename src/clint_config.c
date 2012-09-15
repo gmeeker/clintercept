@@ -60,7 +60,6 @@ static const char *g_clint_config_names[CLINT_MAX] = {
   "CLINT_CHECK_THREAD",
   "CLINT_STRICT_THREAD",
   "CLINT_CHECK_MAPPING",
-  "CLINT_CHECK_MAPPING_BOUNDS",
   "CLINT_CHECK_ACQUIRE",
   "CLINT_CHECK_BOUNDS",
   "CLINT_CHECK_ALL",
@@ -89,8 +88,7 @@ static const char *g_clint_config_describe[CLINT_MAX] = {
   "CLINT_STACK_LOGGING enabled: log stack during object allocation.\n",
   "CLINT_CHECK_THREAD enabled: check for illegal concurrent calls.\n",
   "CLINT_STRICT_THREAD enabled: check for any concurrent calls.\n",
-  "CLINT_CHECK_MAPPING enabled: \n",
-  "CLINT_CHECK_MAPPING_BOUNDS enabled: \n",
+  "CLINT_CHECK_MAPPING enabled: allocate intermediate memory when mapping images or buffers.\n",
   "CLINT_CHECK_ACQUIRE enabled: \n",
   "CLINT_CHECK_BOUNDS enabled: \n",
   "CLINT_CHECK_ALL enabled: full OpenCL checking.\n",
@@ -194,6 +192,7 @@ void clint_config_init(const ClintPathChar *path)
                     logfile_ptr = logfile;
                   }
                   break;
+                case CLINT_CHECK_MAPPING:
                 case CLINT_DISABLE_EXTENSION:
                 case CLINT_FORCE_DEVICE:
                   clint_set_config(i, 1);
@@ -229,6 +228,7 @@ void clint_config_init(const ClintPathChar *path)
       case CLINT_LOG_FILE:
         logfile_ptr = envstr;
         break;
+      case CLINT_CHECK_MAPPING:
       case CLINT_DISABLE_EXTENSION:
       case CLINT_FORCE_DEVICE:
         clint_set_config(i, 1);
@@ -290,9 +290,6 @@ void clint_config_init(const ClintPathChar *path)
     clint_set_config(CLINT_CHECK_ACQUIRE, 1);
     clint_set_config(CLINT_CHECK_BOUNDS, 1);
   }
-  if (clint_get_config(CLINT_CHECK_MAPPING_BOUNDS)) {
-    clint_set_config(CLINT_CHECK_MAPPING, 1);
-  }
   if (clint_get_config(CLINT_CHECK_THREAD) ||
       clint_get_config(CLINT_CHECK_MAPPING) ||
       clint_get_config(CLINT_CHECK_ACQUIRE) ||
@@ -321,6 +318,11 @@ const char *clint_get_config_string(ClintConfig which)
 void clint_set_config(ClintConfig which, int v)
 {
   g_clint_config_values[which] = v;
+}
+
+int clint_cmp_config_string(ClintConfig which, const char *s)
+{
+  return strcasecmp(clint_get_config_string(which), s);
 }
 
 const char *clint_config_describe(ClintConfig which)

@@ -29,7 +29,14 @@
 #include "clint_obj.h"
 #include "clint_config.h"
 #include "clint_data.h"
+#include "clint_mem.h"
 #include "clint_stack.h"
+
+#include <string.h>
+
+#ifndef CL_MAP_WRITE_INVALIDATE_REGION
+#define CL_MAP_WRITE_INVALIDATE_REGION (1 << 2)
+#endif
 
 #define CLINT_IMPL_OBJ_FUNCS(type)                                  \
                                                                     \
@@ -50,6 +57,7 @@ ClintObject_##type *clint_lookup_##type(cl_##type v)                \
   if (obj == NULL) {                                                \
     clint_log("ERROR: Unknown cl_" #type " %p\n", v);               \
     clint_log_abort();                                              \
+    return NULL;                                                    \
   }                                                                 \
   if (obj->refCount <= 0) {                                         \
     clint_log("ERROR: cl_" #type " %p was previously freed.\n", v); \
@@ -71,7 +79,8 @@ void clint_check_output_##type(cl_##type v, void *src, ClintObjType t ARGS) \
   if (clint_get_config(CLINT_TRACK)) {                              \
     ClintObject_##type *obj =                                       \
       (ClintObject_##type*)malloc(sizeof(ClintObject_##type));      \
-    obj->stack = NULL;                                              \
+    memset(obj, 0, sizeof(ClintObject_##type));                     \
+    COPYARGS;                                                       \
     switch (t) {                                                    \
     case ClintObjectType_context:                                   \
       obj->context = (cl_context)src;                               \
@@ -175,22 +184,232 @@ static void clint_log_leaks_##type(ClintObject_##type *tree, cl_context context)
 
 #define ARGS
 #define ARGNAMES
+#define COPYARGS
 CLINT_IMPL_OBJ_FUNCS(context);
 CLINT_IMPL_OBJ_FUNCS(command_queue);
 #undef ARGS
 #undef ARGNAMES
+#undef COPYARGS
 #define ARGS , cl_mem_flags flags, ClintObjSharing sharing
 #define ARGNAMES , flags, sharing
+#define COPYARGS obj->flags = flags; obj->sharing = sharing
 CLINT_IMPL_OBJ_FUNCS(mem);
 #undef ARGS
 #undef ARGNAMES
+#undef COPYARGS
 #define ARGS
 #define ARGNAMES
+#define COPYARGS
 CLINT_IMPL_OBJ_FUNCS(program);
 CLINT_IMPL_OBJ_FUNCS(kernel);
 CLINT_IMPL_OBJ_FUNCS(event);
 CLINT_IMPL_OBJ_FUNCS(sampler);
 CLINT_IMPL_OBJ_FUNCS(device_id);
+
+static size_t clint_sizeof_channel_type(cl_channel_type data_type)
+{
+  switch (data_type) {
+  case CL_SNORM_INT8:
+  case CL_UNORM_INT8:
+  case CL_SIGNED_INT8:
+  case CL_UNSIGNED_INT8:
+    return 1;
+  case CL_SNORM_INT16:
+  case CL_UNORM_INT16:
+  case CL_SIGNED_INT16:
+  case CL_UNSIGNED_INT16:
+    return 2;
+  case CL_SIGNED_INT32:
+  case CL_UNSIGNED_INT32:
+    return 4;
+  case CL_HALF_FLOAT:
+    return 2;
+  case CL_FLOAT:
+    return 4;
+#ifdef CL_SFIXED14_APPLE
+  case CL_SFIXED14_APPLE:
+    return 2;
+#endif
+  default:
+    return 0;
+  }
+}
+
+static size_t clint_sizeof_image_format(const cl_image_format *image_format)
+{
+  switch (image_format->image_channel_order) {
+  case CL_R:
+  case CL_A:
+  case CL_INTENSITY:
+  case CL_LUMINANCE:
+    return clint_sizeof_channel_type(image_format->image_channel_data_type);
+  case CL_RG:
+  case CL_RA:
+  case CL_Rx:
+    return 2 * clint_sizeof_channel_type(image_format->image_channel_data_type);
+  case CL_RGx:
+    return 3 * clint_sizeof_channel_type(image_format->image_channel_data_type);
+  case CL_RGB:
+  case CL_RGBx:
+    switch (image_format->image_channel_data_type) {
+    case CL_UNORM_SHORT_565:
+      return 2;
+    case CL_UNORM_SHORT_555:
+      return 2;
+    case CL_UNORM_INT_101010:
+      return 4;
+    default:
+      return 0;
+    }
+  case CL_RGBA:
+  case CL_ARGB:
+  case CL_BGRA:
+    return 4 * clint_sizeof_channel_type(image_format->image_channel_data_type);
+#ifdef CL_1RGB_APPLE
+  case CL_1RGB_APPLE:
+    return 3 * clint_sizeof_channel_type(image_format->image_channel_data_type);
+#endif
+#ifdef CL_BGR1_APPLE
+  case CL_BGR1_APPLE:
+    return 3 * clint_sizeof_channel_type(image_format->image_channel_data_type);
+#endif
+#ifdef CL_YCbYCr_APPLE
+  case CL_YCbYCr_APPLE:
+    return 2 * clint_sizeof_channel_type(image_format->image_channel_data_type);
+#endif
+#ifdef CL_CbYCrY_APPLE
+  case CL_CbYCrY_APPLE:
+    return 2 * clint_sizeof_channel_type(image_format->image_channel_data_type);
+#endif
+  default:
+    return 0;
+  }
+}
+
+void clint_set_image_format(cl_mem v, const cl_image_format *image_format)
+{
+  if (clint_get_config(CLINT_TRACK)) {
+    ClintObject_mem *obj = clint_lookup_mem(v);
+    if (obj != NULL) {
+      obj->pixelSize = clint_sizeof_image_format(image_format);
+    }
+  }
+}
+
+void *clint_retain_map(cl_mem v, cl_map_flags map_flags, void *ptr, size_t size)
+{
+  if (clint_get_config(CLINT_TRACK)) {
+    ClintObject_mem *obj = clint_lookup_mem(v);
+    if (obj != NULL) {
+      ClintAtomicInt count = CLINT_ATOMIC_ADD(1, obj->mapCount);
+      if (count == 1 &&
+          clint_get_config(CLINT_CHECK_MAPPING)) {
+        if ((obj->flags & CL_MEM_USE_HOST_PTR) != 0) {
+          /* The application may expect the pointer to be the same. */
+          return ptr;
+        }
+        obj->mapPtr = ptr;
+        obj->mapSize = size;
+        obj->mapFlags = map_flags;
+        if (clint_get_config_string(CLINT_CHECK_MAPPING) == NULL ||
+            clint_cmp_config_string(CLINT_CHECK_MAPPING, "malloc") == 0) {
+          /* Allocate with SIMD alignment. */
+          const size_t align = 32;
+#if defined(WIN32)
+          obj->mapCopy.addr = _mm_malloc(obj->mapSize, align);
+#else
+          if (posix_memalign(&obj->mapCopy.addr, align, obj->mapSize) != 0)
+            obj->mapCopy.addr = NULL;
+#endif
+          if (obj->mapCopy.addr == NULL) {
+            return ptr;
+          }
+          if ((obj->mapFlags & CL_MAP_WRITE_INVALIDATE_REGION) != 0) {
+            memcpy(obj->mapCopy.addr, obj->mapPtr, obj->mapSize);
+          }
+        } else {
+          unsigned int flags = 0;
+          if (clint_cmp_config_string(CLINT_CHECK_MAPPING, "protect") == 0) {
+          } else if (clint_cmp_config_string(CLINT_CHECK_MAPPING, "guard_before") == 0) {
+            flags |= ClintMemProtection_Guard_Before | ClintMemProtection_Guard_After;
+          } else {
+            flags |= ClintMemProtection_Guard_After;
+          }
+          if (clint_mem_alloc(&obj->mapCopy, obj->mapSize,
+                              flags | ClintMemProtection_Read | ClintMemProtection_Write)) {
+            return ptr;
+          }
+          if ((obj->mapFlags & CL_MAP_WRITE_INVALIDATE_REGION) != 0) {
+            memcpy(obj->mapCopy.addr, obj->mapPtr, obj->mapSize);
+          }
+          if ((obj->mapFlags & CL_MAP_READ) != 0) {
+            flags |= ClintMemProtection_Read;
+          }
+          if ((obj->mapFlags & CL_MAP_WRITE) != 0 ||
+              (obj->mapFlags & CL_MAP_WRITE_INVALIDATE_REGION) != 0) {
+            flags |= ClintMemProtection_Write;
+          }
+          if (clint_mem_protect(&obj->mapCopy, flags)) {
+            clint_mem_free(&obj->mapCopy);
+            return ptr;
+          }
+        }
+        ptr = obj->mapCopy.addr;
+      }
+    }
+  }
+  return ptr;
+}
+
+void *clint_retain_map_image(cl_mem v, cl_map_flags map_flags, void *ptr,
+                             const size_t *region,
+                             size_t *image_row_pitch,
+                             size_t *image_slice_pitch)
+{
+  if (clint_get_config(CLINT_TRACK)) {
+    ClintObject_mem *obj = clint_lookup_mem(v);
+    if (obj != NULL) {
+      size_t size = 0;
+      if (image_slice_pitch) {
+        size += (region[2]-1) * *image_slice_pitch;
+      }
+      size += (region[1]-1) * *image_row_pitch;
+      size += region[0] * obj->pixelSize;
+      return clint_retain_map(v, map_flags, ptr, size);
+    }
+  }
+  return ptr;
+}
+
+void clint_release_map(cl_mem v)
+{
+  if (clint_get_config(CLINT_TRACK)) {
+    ClintObject_mem *obj = clint_lookup_mem(v);
+    if (obj != NULL) {
+      ClintAtomicInt count = CLINT_ATOMIC_SUB(1, obj->mapCount);
+      if (count == 0 &&
+          clint_get_config(CLINT_CHECK_MAPPING)) {
+        if (obj->mapCopy.addr != NULL &&
+            ((obj->mapFlags & CL_MAP_WRITE) != 0 ||
+             (obj->mapFlags & CL_MAP_WRITE_INVALIDATE_REGION) != 0)) {
+          if (obj->mapCopy.addr_real == NULL ||
+              clint_mem_protect(&obj->mapCopy, ClintMemProtection_Read) == 0) {
+            memcpy(obj->mapPtr, obj->mapCopy.addr, obj->mapSize);
+          }
+        }
+        if (obj->mapCopy.addr_real == NULL) {
+#if defined(WIN32)
+          _mm_free(obj->mapCopy.addr);
+#else
+          free(obj->mapCopy.addr);
+#endif
+        } else {
+          clint_mem_free(&obj->mapCopy);
+        }
+      }
+    }
+  }
+}
 
 void clint_acquire_shared_mem(cl_mem v, ClintObjSharing sharing)
 {
@@ -252,4 +471,95 @@ void clint_log_leaks(cl_context context)
 void clint_log_leaks_all(void)
 {
   clint_log_leaks(NULL);
+}
+
+struct DeviceType {
+  const char *name;
+  cl_device_type type;
+};
+
+static struct DeviceType s_device_types[] = {
+  { "CL_DEVICE_TYPE_CPU", CL_DEVICE_TYPE_CPU },
+  { "CL_DEVICE_TYPE_GPU", CL_DEVICE_TYPE_GPU },
+  { "CL_DEVICE_TYPE_ACCELERATOR", CL_DEVICE_TYPE_ACCELERATOR },
+  { "CL_DEVICE_TYPE_DEFAULT", CL_DEVICE_TYPE_DEFAULT },
+  { "CL_DEVICE_TYPE_ALL", CL_DEVICE_TYPE_ALL },
+  { NULL, CL_DEVICE_TYPE_ALL }
+};
+
+cl_device_type clint_modify_device_type(cl_device_type device_type)
+{
+  if (clint_get_config(CLINT_FORCE_DEVICE) && clint_get_config_string(CLINT_FORCE_DEVICE)[0]) {
+    size_t i;
+    for (i = 0; s_device_types[i].name != NULL; i++) {
+      /* Compare with and without CL_DEVICE_TYPE_ */
+      if (clint_cmp_config_string(CLINT_FORCE_DEVICE, s_device_types[i].name) == 0 ||
+          clint_cmp_config_string(CLINT_FORCE_DEVICE, s_device_types[i].name + 15) == 0) {
+        return s_device_types[i].type;
+      }
+    }
+    clint_log("WARNING: CLINT_FORCE_DEVICE=%s wasn't matched in clCreateContextFromType.  Try a CL_DEVICE_TYPE_* constant.\n", clint_get_config_string(CLINT_FORCE_DEVICE));
+  }
+  return device_type;
+}
+
+const cl_device_id *clint_modify_context_devices(const cl_context_properties *properties, cl_uint *num_devices, const cl_device_id *devices)
+{
+  size_t i;
+  cl_device_id *new_devices;
+  cl_platform_id platform = NULL;
+  cl_uint num, dev_idx;
+  cl_int err;
+
+  if (clint_get_config(CLINT_FORCE_DEVICE) && clint_get_config_string(CLINT_FORCE_DEVICE)[0]) {
+    if (properties == NULL) {
+      clint_log("WARNING: CLINT_FORCE_DEVICE won't override NULL properties.\n");
+      return devices;
+    }
+    for (i = 0; properties[i] != 0; i += 2) {
+      if (properties[i] == CL_CONTEXT_PLATFORM) {
+        platform = (cl_platform_id)properties[i+1];
+      }
+    }
+    if (platform == NULL) {
+      clint_log("WARNING: CLINT_FORCE_DEVICE won't override without a platform argument.\n");
+      return NULL;
+    }
+    for (i = 0; s_device_types[i].name != NULL; i++) {
+      /* Compare with and without CL_DEVICE_TYPE_ */
+      if (clint_cmp_config_string(CLINT_FORCE_DEVICE, s_device_types[i].name) == 0 ||
+          clint_cmp_config_string(CLINT_FORCE_DEVICE, s_device_types[i].name + 15) == 0) {
+        err = clGetDeviceIDs(platform, s_device_types[i].type, 0, NULL, &num);
+        if (err == CL_SUCCESS) {
+          devices = new_devices = clint_autopool_malloc(num * sizeof(cl_device_id));
+          err = clGetDeviceIDs(platform, s_device_types[i].type, num, new_devices, NULL);
+          *num_devices = num;
+        }
+        return devices;
+      }
+    }
+    err = clGetDeviceIDs(platform, s_device_types[i].type, 0, NULL, &num);
+    if (err == CL_SUCCESS) {
+      new_devices = clint_autopool_malloc(num * sizeof(cl_device_id));
+      err = clGetDeviceIDs(platform, CL_DEVICE_TYPE_ALL, num, new_devices, NULL);
+      if (err == CL_SUCCESS) {
+        for (dev_idx = 0; dev_idx < num; dev_idx++) {
+          size_t size;
+          err = clGetDeviceInfo(devices[dev_idx], CL_DEVICE_NAME, 0, NULL, &size);
+          if (err == CL_SUCCESS) {
+            char *name = clint_autopool_malloc(size);
+            err = clGetDeviceInfo(devices[dev_idx], CL_DEVICE_NAME, size, name, NULL);
+            if (err == CL_SUCCESS && clint_cmp_config_string(CLINT_FORCE_DEVICE, name) == 0) {
+              devices = new_devices = clint_autopool_malloc(sizeof(cl_device_id));
+              *new_devices = devices[dev_idx];
+              *num_devices = 1;
+              return devices;
+            }
+          }
+        }
+      }
+    }
+    clint_log("WARNING: CLINT_FORCE_DEVICE=%s wasn't matched.\n", clint_get_config_string(CLINT_FORCE_DEVICE));
+  }
+  return devices;
 }

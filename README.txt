@@ -71,10 +71,18 @@ thread-safe.  OpenCL 1.0 Specification, A.2.
 CLINT_CHECK_MAPPING
 Allocate intermediate memory buffers when mapping images or buffers.  This can help
 detect buffer overwrites and allow other bounds checking tools to detect errors.
-
-CLINT_CHECK_MAPPING_BOUNDS
-Allocate extra memory to look for overwrites.  This may interfere with other
-bounds checking tools.
+="protect"
+Enforce read-only and write-only mappings, but without guard pages.  Write-only can only
+be enforced on systems that support PROT_WRITE in mmap() without PROT_READ.
+(Windows does not support write-only.)
+="guard"
+The intermediate buffer will be aligned to the end of a page and followed by a guard page.
+This is the default.
+="guard_before"
+Add guard pages before and after the intermediate buffer.  A gap of up to a page will
+be preset between the buffer and the last guard page.
+="malloc"
+Allocate using malloc() to avoid interfering with other memory debugging tools.
 
 CLINT_CHECK_ACQUIRE
 Detect errors when sharing OpenGL or D3D objects.  Note that we only intercept OpenCL calls,

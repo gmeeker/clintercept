@@ -357,15 +357,17 @@ def gen_custom_func_begin(out, f, typeMap):
         arg = filter(lambda a: a[0] == 'cl_command_queue_properties', args)[-1]
         out.write('\tif (clint_get_config(CLINT_PROFILE))\n')
         out.write('\t\t%s |= CL_QUEUE_PROFILING_ENABLE;\n' % arg[1])
-    if has_prefix(name, 'clEnqueueMap'):
-        arg = filter(lambda a: a[0] == 'cl_mem', args)[-1]
-        out.write('\tclint_retain_mem(%s);\n' % arg[1])
-    if name == 'clEnqueueUnmapMemObject':
-        arg = filter(lambda a: a[0] == 'cl_mem', args)[-1]
-        out.write('\tclint_release_mem(%s);\n' % arg[1])
     if has_prefix(name, 'clEnqueueAcquire'):
         sharing = gen_mem_sharing(name)
         out.write('\tclint_acquire_shared_mems(%s, %s, %s);\n' % (args[1][1], args[2][1], sharing))
+    if name == 'clCreateContextFromType':
+        arg = filter(lambda a: a[0] == 'cl_device_type', args)[-1]
+        out.write('\t\t%s = clint_modify_device_type(%s);\n' % (arg[1], arg[1]))
+    elif has_prefix(name, 'clCreateContext'):
+        arg0 = filter(lambda a: 'cl_context_properties' in a[0], args)[0]
+        arg1 = filter(lambda a: 'cl_uint' == a[0], args)[0]
+        arg2 = filter(lambda a: 'cl_device_id' in a[0], args)[0]
+        out.write('\t%s = clint_modify_context_devices(%s, %s, %s);\n' % (arg2[1], arg0[1], '&'+arg1[1], arg2[1]))
     if has_prefix(name, 'clEnqueueRelease'):
         sharing = gen_mem_sharing(name)
         out.write('\tclint_release_shared_mems(%s, %s, %s);\n' % (args[1][1], args[2][1], sharing))
@@ -376,6 +378,22 @@ def gen_custom_func_exit(out, f, typeMap):
         out.write('\tclint_opencl_exit();\n')
     if name == 'clSetKernelArg':
         out.write('\tclint_kernel_exit(%s);\n' % args[0][1])
+    if name == 'clEnqueueUnmapMemObject':
+        arg = filter(lambda a: a[0] == 'cl_mem', args)[-1]
+        out.write('\tclint_release_map(%s);\n' % arg[1])
+    if has_prefix(name, 'clEnqueueMap'):
+        arg0 = filter(lambda a: a[0] == 'cl_mem', args)[-1]
+        arg1 = filter(lambda a: a[0] == 'cl_map_flags', args)[-1]
+        arg2 = ('void *', 'retval')
+        if name == 'clEnqueueMapImage':
+            arg3 = filter(lambda a: 'size_t' in a[0], args)[1]
+            arg4 = filter(lambda a: 'size_t' in a[0], args)[2]
+            arg5 = filter(lambda a: 'size_t' in a[0], args)[3]
+            out.write('\t%s = clint_retain_map_image(%s, %s, %s, %s, %s, %s);\n' % (arg2[1], arg0[1], arg1[1], arg2[1], arg3[1], arg4[1], arg5[1]))
+        else:
+            arg3 = filter(lambda a: a[0] == 'size_t', args)[1]
+            out.write('\t%s = clint_retain_map(%s, %s, %s, %s);\n' % (arg2[1], arg0[1], arg1[1], arg2[1], arg3[1]))
+        out.write('\tif (clint_get_config(CLINT_CHECK_MAPPING))\n\t\t%s = CL_TRUE;\n' % filter(lambda a: a[0] == 'cl_bool', args)[-1][1])
     if name in ('clGetPlatformInfo', 'clGetDeviceInfo'):
         if name == 'clGetPlatformInfo':
             param_name = 'CL_PLATFORM_EXTENSIONS'

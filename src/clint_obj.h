@@ -31,6 +31,7 @@
 
 #include "clint_atomic.h"
 #include "clint_log.h"
+#include "clint_mem.h"
 #include "clint_tree.h"
 
 #ifdef __cplusplus
@@ -67,6 +68,7 @@ typedef struct ClintObject_##type {                                 \
   cl_context context;                                               \
   ClintAtomicInt refCount;                                          \
   ClintAtomicInt threadCount;                                       \
+  ELEMS;                                                            \
 } ClintObject_##type;                                               \
                                                                     \
 ClintObject_##type *clint_lookup_##type(cl_##type v);               \
@@ -78,18 +80,39 @@ void clint_retain_##type(cl_##type v);                              \
 void clint_release_##type(cl_##type v)                              \
 
 #define ARGS
+#define ELEMS
 CLINT_DEFINE_OBJ_FUNCS(context);
 CLINT_DEFINE_OBJ_FUNCS(command_queue);
 #undef ARGS
+#undef ELEMS
 #define ARGS , cl_mem_flags flags, ClintObjSharing sharing
+#define ELEMS                                                       \
+  cl_mem_flags flags;                                               \
+  ClintObjSharing sharing;                                          \
+  ClintAtomicInt mapCount;                                          \
+  void *mapPtr;                                                     \
+  ClintMem mapCopy;                                                 \
+  cl_map_flags mapFlags;                                            \
+  size_t mapSize;                                                   \
+  size_t pixelSize;
 CLINT_DEFINE_OBJ_FUNCS(mem);
 #undef ARGS
+#undef ELEMS
 #define ARGS
+#define ELEMS
 CLINT_DEFINE_OBJ_FUNCS(program);
 CLINT_DEFINE_OBJ_FUNCS(kernel);
 CLINT_DEFINE_OBJ_FUNCS(event);
 CLINT_DEFINE_OBJ_FUNCS(sampler);
 CLINT_DEFINE_OBJ_FUNCS(device_id);
+
+void clint_set_image_format(cl_mem v, const cl_image_format *image_format);
+void *clint_retain_map(cl_mem v, cl_map_flags map_flags, void *ptr, size_t size);
+void *clint_retain_map_image(cl_mem v, cl_map_flags map_flags, void *ptr,
+                             const size_t *region,
+                             size_t *image_row_pitch,
+                             size_t *image_slice_pitch);
+void clint_release_map(cl_mem v);
 
 void clint_acquire_shared_mem(cl_mem v, ClintObjSharing sharing);
 void clint_acquire_shared_mems(cl_uint num, const cl_mem *v, ClintObjSharing sharing);
@@ -103,6 +126,10 @@ void clint_kernel_exit(cl_kernel kernel);
 /* Log any possible leaks for context, or all leaks if NULL. */
 void clint_log_leaks(cl_context context);
 void clint_log_leaks_all(void);
+
+/* Modify clCreatContext parameters with CLINT_FORCE_DEVICE. */
+cl_device_type clint_modify_device_type(cl_device_type device_type);
+const cl_device_id *clint_modify_context_devices(const cl_context_properties *properties, cl_uint *num_devices, const cl_device_id *devices);
 
 #ifdef __cplusplus
 }

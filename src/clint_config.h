@@ -64,8 +64,6 @@ typedef enum ClintConfig {
   CLINT_STRICT_THREAD,
   /* Allocate intermediate memory buffers when mapping images or buffers. */
   CLINT_CHECK_MAPPING,
-  /* Allocate extra memory to look for overwrites. */
-  CLINT_CHECK_MAPPING_BOUNDS,
   /* Detect errors when sharing OpenGL or D3D objects. */
   CLINT_CHECK_ACQUIRE,
   /* Modify kernel source to allow memory bounds checking. */
@@ -88,6 +86,7 @@ void clint_config_init(const ClintPathChar *path);
 int clint_get_config(ClintConfig which);
 const char *clint_get_config_string(ClintConfig which);
 void clint_set_config(ClintConfig which, int v);
+int clint_cmp_config_string(ClintConfig which, const char *s);
 const char *clint_config_describe(ClintConfig which);
 
 #endif
