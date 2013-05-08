@@ -41,7 +41,7 @@
 void* clint_opencl_load(void)
 {
   clint_opencl_init();
-return (void*)1;
+  return (void*)1;
 }
 
 void* clint_opencl_sym(void *dll, const char *sym)
