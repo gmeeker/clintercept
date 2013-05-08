@@ -5,13 +5,13 @@ import re
 import string
 import sys
 
-pat_func = re.compile(r'(extern\s+CL_API_ENTRY\s+[^;]*\s+CL_[A-Z]*_SUFFIX__VERSION[_0-9]*(?:_DEPRECATED)?\s*;)')
+pat_func = re.compile(r'(extern\s+CL_API_ENTRY\s+(?:CL_[A-Z]*_PREFIX__VERSION[_0-9]*_DEPRECATED\s*)?[^;]*\s+CL_[A-Z]*_SUFFIX__VERSION[_0-9]*(?:_DEPRECATED)?\s*;)')
 pat_extern = re.compile(r'extern\s+')
 pat_name = re.compile(r'CL_API_CALL\s+(\w+)')
 pat_func_before_args = re.compile(r'^.*CL_API_CALL\s+\w+\(')
 pat_args = re.compile(r'(([a-zA-Z0-9_* ]+)\s+(\w+)\s*[,)])|((\w+(\s*[*])?\s*\(\s*(CL_CALLBACK)?\s*[*]\s*\w+\s*\)\s*\([^)]*\))\s*[,)])')
 pat_func_ptr = re.compile(r'((CL_CALLBACK)?\s*[*])\s*(\w+)')
-pat_return = re.compile(r'CL_API_ENTRY\s+(\w+(\s*[*])?)\s+CL_API_CALL')
+pat_return = re.compile(r'CL_API_ENTRY\s+(?:CL_[A-Z]*_PREFIX__VERSION[_0-9]*_DEPRECATED\s*)?(\w+(\s*[*])?)\s+CL_API_CALL')
 pat_suffix = re.compile(r'\s+CL_[A-Z]*_SUFFIX__VERSION[_0-9A-Z]*')
 pat_comment = re.compile(r'/[*]\s*(\w*).*?[*]/')
 pat_c_cpp_comment = re.compile(r'(/[*].*[*]/)|(//.*\n?)')
@@ -536,6 +536,7 @@ def scanFile(file, filename, funcs, typeMap, typeIncludes):
     text = file.read()
     protos = pat_func.findall(text)
     for proto in protos:
+        print proto
         name = pat_name.search(proto).group(1)
         r = pat_return.search(proto).group(1)
         argStr = pat_func_before_args.sub('', proto)
