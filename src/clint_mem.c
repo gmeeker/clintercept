@@ -27,7 +27,7 @@
 */
 
 #include "clint_mem.h"
-#include <stdio.h>
+#include <string.h>
 
 #if defined(WIN32)
 
@@ -140,7 +140,6 @@ int clint_mem_alloc(struct ClintMem *mem, size_t bytes, unsigned int flags)
   }
   if ((flags & ClintMemProtection_Guard_After) != 0) {
     if (mprotect((char*)mem->addr + mem->size_page, p, PROT_NONE) != 0) {
-      perror("ERROR in mprotect");
       return 1;
     }
     if ((flags & ClintMemProtection_Guard_Before) == 0) {
