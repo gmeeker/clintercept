@@ -2,16 +2,16 @@ To use the library:
 
 Window:
 
-Copy OpenCL.dll and ClintConfig.txt next to the application.
-Edit the options in ClintConfig.txt, especially the log file location.
+Copy OpenCL.dll and CLInterceptConfig.txt next to the application.
+Edit the options in CLInterceptConfig.txt, especially the log file location.
 
 Mac OS X:
 
 Override DYLD_INSERT_LIBRARIES to the dylib's path and set any options in the environment.
-You may also specify option in ClintConfig.txt.
+You may also specify option in CLInterceptConfig.txt.
 Logging will use NSLog by default, but a log file can be specified.
 
-DYLD_INSERT_LIBRARIES=/my/install/path/libClint.dylib CLINT_CHECK_ALL=1 ./clinfo
+DYLD_INSERT_LIBRARIES=/my/install/path/libCLIntercept.dylib CLINT_CHECK_ALL=1 ./clinfo
 
 Why is this a dylib not a framework?  If we write a replacement OpenCL framework, we can't
 load the real framework.  We use DYLD_INSERT_LIBRARIES to inject replacement functions,
@@ -89,6 +89,7 @@ Detect errors when sharing OpenGL or D3D objects.  Note that we only intercept O
 so synchronization is not checked.  OpenCL 1.2 Extension Specification, section 9.6.6.
 
 CLINT_CHECK_BOUNDS
+** Currently unimplemented **
 Modify kernel source to allow memory bounds checking.  This won't work with binaries.
 
 CLINT_CHECK_ALL

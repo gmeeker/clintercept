@@ -1,6 +1,6 @@
 /* -*- mode: C; c-basic-offset: 2; indent-tabs-mode: nil -*- */
 /*
-** Clint OpenCL debugging utilities
+** CLIntercept OpenCL debugging utilities
 ** Copyright (c) 2012, Digital Anarchy, Inc.
 ** All rights reserved.
 ** 
@@ -133,7 +133,7 @@ void clint_opencl_init()
     return;
   GetModuleFileName((HINSTANCE)mbi.AllocationBase, path, sizeof(path) / sizeof(TCHAR));
   _tcsrchr(path, '\\')[1] = 0; 
-  _tcscat_s(path, _countof(path), _T("ClintConfig.txt"));
+  _tcscat_s(path, _countof(path), _T("CLInterceptConfig.txt"));
   clint_config_init(path);
 #else
   const char *envstr;
@@ -150,7 +150,7 @@ void clint_opencl_init()
     dladdr((void*)&clint_opencl_init, &dl_info);
     strcpy(path, dl_info.dli_fname);
     strrchr(path, '/')[1] = 0;
-    strcat(path, "ClintConfig.txt");
+    strcat(path, "CLInterceptConfig.txt");
     clint_config_init(path);
 #endif
   }

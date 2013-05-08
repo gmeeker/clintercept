@@ -1,6 +1,6 @@
 /* -*- mode: C; c-basic-offset: 2; indent-tabs-mode: nil -*- */
 /*
-** Clint OpenCL debugging utilities
+** CLIntercept OpenCL debugging utilities
 ** Copyright (c) 2012, Digital Anarchy, Inc.
 ** All rights reserved.
 ** 

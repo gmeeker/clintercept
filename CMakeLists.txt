@@ -1,6 +1,6 @@
-# Clint OpenCL utilities
+# CLIntercept OpenCL utilities
 cmake_minimum_required (VERSION 2.8)
-project (Clint)
+project (CLIntercept)
 
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/FindOpenCL/")
 find_package(OpenCL REQUIRED)
@@ -12,7 +12,7 @@ include_directories(${CMAKE_CURRENT_BINARY_DIR})
 if (WIN32)
   set(CLINT_LIBNAME "OpenCL")
 else()
-  set(CLINT_LIBNAME "Clint")
+  set(CLINT_LIBNAME "CLIntercept")
 endif()
 set(CMAKE_OSX_ARCHITECTURES i386;x86_64)
 set(CMAKE_OSX_DEPLOYMENT_TARGET 10.6)
