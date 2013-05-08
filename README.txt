@@ -1,3 +1,13 @@
+To build the library:
+
+git clone git://git.code.sf.net/p/clintercept/code clintercept
+cd clintercept
+git clone git://gitorious.org/findopencl/findopencl FindOpenCL
+mkdir xcode
+cd xcode
+cmake -G Xcode ..
+xcodebuild -project CLIntercept.xcodeproj -target ALL_BUILD -configuration Debug build
+
 To use the library:
 
 Window:
@@ -20,6 +30,15 @@ and use interposing internally to avoid DYLD_FORCE_FLAT_NAMESPACE.
 Linux:
 
 LD_PRELOAD=/my/install/path/libOpenCL.so LD_LIBRARY_PATH=/my/install/path/ CLINT_CHECK_ALL=1 ./clinfo
+
+To run the test:
+DYLD_INSERT_LIBRARIES=/my/install/path/libCLIntercept.dylib CLINT_CHECK_ALL=1 CLINT_EMBEDDED=1 ./test_clint all
+
+Yes, it does print errors.  That's intentional because these are illegal kernels or OpenCL calls.
+It shouldn't crash.  Note that you must enable CLIntercept to run this test.  It checks for this,
+because your OpenCL driver won't catch these mistakes and it may crash your display or worse.
+
+Usage:
 
 CLINT_CONFIG_FILE <file>
 Read configuration settings from <file>.

@@ -566,9 +566,12 @@ int main(int argc, const char *argv[])
   if (test[0] == 0 || strcmp(test, "mapping") == 0) {
     testMapping(context, queue);
   }
+  /*
+   * Bounds checking isn't implemented so don't run this...
   if (test[0] == 0 || strcmp(test, "bounds") == 0) {
     testBounds(context, queue);
   }
+  */
   if (test[0] == 0 || strcmp(test, "embedded") == 0) {
     testEmbedded(context, queue, platforms[0], devices, num_devices);
   }
