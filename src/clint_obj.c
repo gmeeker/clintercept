@@ -563,3 +563,58 @@ const cl_device_id *clint_modify_context_devices(const cl_context_properties *pr
   }
   return devices;
 }
+
+const char *clint_modify_build_options(const char *options)
+{
+  if (clint_get_config(CLINT_EMBEDDED)) {
+    return clint_string_cat("-D __EMBEDDED_PROFILE__ ", options);
+  }
+  return options;
+}
+
+static const char *clint_embedded_prefix =
+  "static bool clint_is_float(int v) { return v == CLK_HALF_FLOAT || v == CLK_FLOAT; }\n"
+  "#undef read_imagef\n"
+  "#undef read_imagei\n"
+  "#undef read_imageui\n"
+  "#undef read_imageh\n"
+//  "#define read_imagef(a,b,c) ((clint_is_float(get_image_channel_data_type((a))) && ((b) & CLK_FILTER_LINEAR) != 0) ? (printf(\"Illegal use of CLK_FILTER_LINEAR\\n\"), (float4)(0.f)) : read_imagef((a),(b),(c)))\n"
+  "#define read_imagef(a,b,c) ((clint_is_float(get_image_channel_data_type((a))) && ((b) & CLK_FILTER_LINEAR) != 0) ? (float4)(0.f) : read_imagef((a),(b),(c)))\n"
+  "#define read_imagei\n"
+  "#define read_imageui\n"
+  "#define read_imageh\n"
+  ;
+
+const char *clint_modify_program_source(const char *source)
+{
+  if (clint_get_config(CLINT_EMBEDDED)) {
+    return clint_string_cat(clint_embedded_prefix, source);
+  }
+  return source;
+}
+
+const char **clint_modify_program_sources(cl_uint count, const char **strings, const size_t **lengths)
+{
+  if (count > 0) {
+    const char *oldstr = strings[0];
+    if (*lengths != NULL && (*lengths)[0] > 0) {
+      char *s = (char*)clint_autopool_malloc((*lengths)[0] + 1);
+      memcpy(s, strings[0], (*lengths)[0]);
+      s[(*lengths)[0]] = 0;
+      oldstr = s;
+    }
+    const char *newstr = clint_modify_program_source(oldstr);
+    if (newstr != oldstr) {
+      const char **newstrings = (const char **)clint_autopool_malloc((size_t)count * sizeof(const char*));
+      memcpy(newstrings, *strings, (size_t)count * sizeof(const char*));
+      newstrings[0] = newstr;
+      if (*lengths != NULL) {
+        size_t *newlengths = (size_t*)clint_autopool_malloc((size_t)count * sizeof(size_t));
+        memcpy(newlengths, *lengths, (size_t)count * sizeof(size_t));
+        newlengths[0] = 0;
+      }
+      strings = newstrings;
+    }
+  }
+  return strings;
+}

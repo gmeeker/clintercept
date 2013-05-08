@@ -360,6 +360,14 @@ def gen_custom_func_begin(out, f, typeMap):
     if has_prefix(name, 'clEnqueueAcquire'):
         sharing = gen_mem_sharing(name)
         out.write('\tclint_acquire_shared_mems(%s, %s, %s);\n' % (args[1][1], args[2][1], sharing))
+    if name in ('clBuildProgram', 'clCompileProgram'):
+        arg = filter(lambda a: a[0] == 'const char *', args)[-1]
+        out.write('\t\t%s = clint_modify_build_options(%s);\n' % (arg[1], arg[1]))
+    if name == 'clCreateProgramWithSource':
+        arg0 = filter(lambda a: a[0] == 'cl_uint', args)[-1]
+        arg1 = filter(lambda a: a[0] == 'const char **', args)[-1]
+        arg2 = filter(lambda a: a[0] == 'const size_t *', args)[-1]
+        out.write('\t\t%s = clint_modify_program_sources(%s, %s, %s);\n' % (arg1[1], arg0[1], arg1[1], '&'+arg2[1]))
     if name == 'clCreateContextFromType':
         arg = filter(lambda a: a[0] == 'cl_device_type', args)[-1]
         out.write('\t\t%s = clint_modify_device_type(%s);\n' % (arg[1], arg[1]))
@@ -402,16 +410,18 @@ def gen_custom_func_exit(out, f, typeMap):
         out.write('\tif (clint_get_config(CLINT_ENABLED) && %s == %s) {\n' % (args[1][1], param_name))
         out.write('\t\tclint_extensions_modify(%s, (char*)%s, %s);\n' % (args[2][1], args[3][1], args[4][1]))
         out.write('\t}\n')
-        if name == 'clGetPlatformInfo':
-            # Don't worry about calling the real clGetPlatformInfo
-            # because EMBEDDED_PROFILE is longer than FULL_PROFILE.
-            profile = 'EMBEDDED_PROFILE'
-            out.write('\tif (clint_get_config(CLINT_EMBEDDED) && %s == CL_PLATFORM_PROFILE) {\n' % args[1][1])
-            out.write('\t\tif (%s != NULL)\n' % args[4][1])
-            out.write('\t\t\t*%s = %d;\n' % (args[4][1], len(profile)+1))
-            out.write('\t\tif (%s >= %d && %s != NULL)\n' % (args[2][1], len(profile)+1, args[3][1]))
-            out.write('\t\t\tmemcpy(%s, \"%s\", %d);\n' % (args[3][1], profile, len(profile)+1))
-            out.write('\t}\n')
+
+        arg = ((name == 'clGetPlatformInfo') and 'CL_PLATFORM_PROFILE') or 'CL_DEVICE_PROFILE'
+        # Don't worry about calling the real clGetPlatformInfo or clGetDeviceInfo
+        # because EMBEDDED_PROFILE is longer than FULL_PROFILE.
+        profile = 'EMBEDDED_PROFILE'
+        out.write('\tif (clint_get_config(CLINT_EMBEDDED) && %s == %s) {\n' % (args[1][1], arg))
+        out.write('\t\tif (%s != NULL)\n' % args[4][1])
+        out.write('\t\t\t*%s = %d;\n' % (args[4][1], len(profile)+1))
+        out.write('\t\tif (%s >= %d && %s != NULL)\n' % (args[2][1], len(profile)+1, args[3][1]))
+        out.write('\t\t\tmemcpy(%s, \"%s\", %d);\n' % (args[3][1], profile, len(profile)+1))
+        out.write('\t}\n')
+
         if name == 'clGetDeviceInfo':
             out.write('\tif (clint_get_config(CLINT_DISABLE_IMAGE) && %s > 0 && %s != NULL) {\n' % (args[2][1], args[3][1]))
             out.write('\t\tswitch (%s) {\n' % args[1][1])

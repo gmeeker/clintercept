@@ -52,10 +52,63 @@ struct Program {
 static const char *null_program_text =
   "kernel void kmain(const float s) {}\n";
 
-static const char *bounds_program_text =
-  "kernel void kmain(global float4 *dst)\n"
+static const char *bounds_buffer_program_text =
+  "kernel void kmain(global float *dst, global const float *src)\n"
   "{\n"
+  "  dst[-1] = src[-1];\n"
   "}\n";
+
+static const char *bounds_image_program_text =
+  "kernel void kmain(write_only image2d_t dst, read_only image2d_t src)\n"
+  "{\n"
+  "  float2 posf = (float2)(-1.f, -1.f);\n"
+  "  int2 pos = (int2)(-1, -1);\n"
+  "  write_imagef(dst, pos, read_imagef(src, CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_NONE | CLK_FILTER_NEAREST, posf));\n"
+  "}\n";
+
+static const char *embedded_program_text =
+  "#ifdef __EMBEDDED_PROFILE__\n"
+  "kernel void kmain(write_only image2d_t dst, read_only image2d_t src)\n"
+  "{\n"
+  "  float2 posf = (float2)((float)get_global_id(0), (float)get_global_id(1));\n"
+  "  int2 pos = (int2)(get_global_id(0), get_global_id(1));\n"
+  "  write_imagef(dst, pos, read_imagef(src, CLK_NORMALIZED_COORDS_FALSE | CLK_ADDRESS_CLAMP_TO_EDGE | CLK_FILTER_LINEAR, posf));\n"
+  "}\n"
+  "#endif\n";
+
+static cl_int getPlatformString(char **str, cl_platform_id platform, cl_platform_info param)
+{
+  cl_int err;
+  size_t size;
+  err = clGetPlatformInfo(platform, param, 0, NULL, &size);
+  if (err) {
+    return err;
+  }
+  *str = (char*)malloc(size);
+  err = clGetPlatformInfo(platform, param, size, *str, NULL);
+  if (err) {
+    free(*str);
+    *str = NULL;
+  }
+  return err;
+}
+
+static cl_int getDeviceString(char **str, cl_device_id device, cl_device_info param)
+{
+  cl_int err;
+  size_t size;
+  err = clGetDeviceInfo(device, param, 0, NULL, &size);
+  if (err) {
+    return err;
+  }
+  *str = (char*)malloc(size);
+  err = clGetDeviceInfo(device, param, size, *str, NULL);
+  if (err) {
+    free(*str);
+    *str = NULL;
+  }
+  return err;
+}
 
 cl_int createProgram(cl_context context, struct Program *program, const char *text)
 {
@@ -259,6 +312,147 @@ static void testMapping(cl_context context, cl_command_queue queue)
 
 static void testBounds(cl_context context, cl_command_queue queue)
 {
+  const size_t size = 1024;
+  cl_int err;
+  cl_mem dst, src;
+  cl_event event;
+  struct Program program;
+  size_t dim[3];
+  cl_image_format fmt;
+  dim[0] = 1024;
+  dim[1] = 1024;
+  dim[2] = 1;
+
+  dst = clCreateBuffer(context, CL_MEM_READ_WRITE, size, NULL, NULL);
+  if (dst == NULL) {
+    return;
+  }
+  src = clCreateBuffer(context, CL_MEM_READ_WRITE, size, NULL, NULL);
+  if (src == NULL) {
+    return;
+  }
+  err = createProgram(context, &program, bounds_buffer_program_text);
+  if (err != CL_SUCCESS) {
+    fprintf(stderr, "Unable to compile OpenCL program: %d.\n", err);
+    return;
+  }
+  clSetKernelArg(program.kernel, 0, sizeof(cl_mem), &dst);
+  clSetKernelArg(program.kernel, 1, sizeof(cl_mem), &src);
+  err = clEnqueueNDRangeKernel(queue, program.kernel, 2, NULL, dim, NULL, 0, NULL, &event);
+  if (err == CL_SUCCESS) {
+    err = clWaitForEvents(1, &event);
+    clReleaseEvent(event);
+  }
+  clReleaseMemObject(dst);
+  clReleaseMemObject(src);
+  destroyProgram(&program);
+
+  src = clCreateImage2D(context, CL_MEM_READ_WRITE, &fmt, dim[0], dim[1], 0, NULL, &err);
+  if (src == NULL) {
+    return;
+  }
+  dst = clCreateImage2D(context, CL_MEM_READ_WRITE, &fmt, dim[0], dim[1], 0, NULL, &err);
+  if (dst == NULL) {
+    return;
+  }
+  err = createProgram(context, &program, bounds_image_program_text);
+  if (err != CL_SUCCESS) {
+    fprintf(stderr, "Unable to compile OpenCL program: %d.\n", err);
+    return;
+  }
+  clSetKernelArg(program.kernel, 0, sizeof(cl_mem), &dst);
+  clSetKernelArg(program.kernel, 1, sizeof(cl_mem), &src);
+  err = clEnqueueNDRangeKernel(queue, program.kernel, 2, NULL, dim, NULL, 0, NULL, &event);
+  if (err == CL_SUCCESS) {
+    err = clWaitForEvents(1, &event);
+    clReleaseEvent(event);
+  }
+  clReleaseMemObject(dst);
+  clReleaseMemObject(src);
+  destroyProgram(&program);
+}
+
+static void testEmbedded(cl_context context, cl_command_queue queue, cl_platform_id platform,
+                         cl_device_id *devices, size_t num_devices)
+{
+  char *str = NULL;
+  cl_int err;
+  size_t i;
+  struct Program program;
+
+  err = getPlatformString(&str, platform, CL_PLATFORM_PROFILE);
+  if (err || strcmp(str, "EMBEDDED_PROFILE") != 0) {
+    fprintf(stderr, "ERROR: Platform profile %s isn't embedded.\n", str);
+  }
+  if (str)
+    free(str);
+  for (i = 0; i < num_devices; i++) {
+    size_t width, height, depth;
+    err = getDeviceString(&str, devices[i], CL_DEVICE_PROFILE);
+    if (err || strcmp(str, "EMBEDDED_PROFILE") != 0) {
+      fprintf(stderr, "ERROR: Device profile %s isn't embedded.\n", str);
+    }
+    if (str)
+      free(str);
+    if ((clGetDeviceInfo(devices[i], CL_DEVICE_IMAGE3D_MAX_WIDTH, sizeof(width), &width, NULL) == CL_SUCCESS &&
+        width != 0) ||
+        (clGetDeviceInfo(devices[i], CL_DEVICE_IMAGE3D_MAX_HEIGHT, sizeof(height), &height, NULL) == CL_SUCCESS &&
+        height != 0) ||
+        (clGetDeviceInfo(devices[i], CL_DEVICE_IMAGE3D_MAX_DEPTH, sizeof(depth), &depth, NULL) == CL_SUCCESS &&
+         depth != 0)) {
+      fprintf(stderr, "ERROR: Device profile supports 3D images.\n");
+    }
+  }
+  err = createProgram(context, &program, embedded_program_text);
+  if (err != CL_SUCCESS) {
+    fprintf(stderr, "Unable to compile OpenCL program: %d.\n", err);
+    return;
+  }
+  for (i = 0; i < 3; i++) {
+    cl_mem src, dst;
+    cl_event event;
+    size_t dim[3];
+    cl_image_format fmt;
+    dim[0] = 1024;
+    dim[1] = 1024;
+    dim[2] = 1;
+    fmt.image_channel_order = CL_RGBA;
+    switch (i) {
+    case 0:
+      fmt.image_channel_data_type = CL_UNORM_INT8;
+      break;
+    case 1:
+      fmt.image_channel_data_type = CL_UNORM_INT16;
+      break;
+    case 2:
+      fmt.image_channel_data_type = CL_HALF_FLOAT;
+      break;
+    case 3:
+      fmt.image_channel_data_type = CL_FLOAT;
+      break;
+    }
+    src = clCreateImage2D(context, CL_MEM_READ_WRITE, &fmt, dim[0], dim[1], 0, NULL, &err);
+    if (src == NULL) {
+      return;
+    }
+    dst = clCreateImage2D(context, CL_MEM_READ_WRITE, &fmt, dim[0], dim[1], 0, NULL, &err);
+    if (dst == NULL) {
+      return;
+    }
+    clSetKernelArg(program.kernel, 0, sizeof(cl_mem), &dst);
+    clSetKernelArg(program.kernel, 1, sizeof(cl_mem), &src);
+    err = clEnqueueNDRangeKernel(queue, program.kernel, 2, NULL, dim, NULL, 0, NULL, &event);
+    if (err == CL_SUCCESS) {
+      err = clWaitForEvents(1, &event);
+      clReleaseEvent(event);
+    }
+    if (err != CL_SUCCESS) {
+      fprintf(stderr, "ERROR: Unable to run embedded CL_LINEAR: %d.\n", err);
+    }
+    clReleaseMemObject(src);
+    clReleaseMemObject(dst);
+  }
+  destroyProgram(&program);
 }
 
 int main(int argc, const char *argv[])
@@ -273,7 +467,6 @@ int main(int argc, const char *argv[])
   char *ext;
   cl_uint num_platforms;
   size_t num_devices;
-  size_t ext_size;
   int i;
 
   test = NULL;
@@ -281,7 +474,7 @@ int main(int argc, const char *argv[])
     test = argv[1];
   }
   if (test == NULL) {
-    fprintf(stderr, "Usage: %s all|leaks|thread|mapping|bounds\n", argv[0]);
+    fprintf(stderr, "Usage: %s all|leaks|thread|mapping|bounds|embedded\n", argv[0]);
     return 1;
   }
   if (strcmp(test, "all") == 0) {
@@ -304,13 +497,7 @@ int main(int argc, const char *argv[])
     exit(EXIT_FAILURE);
   }
 
-  err = clGetPlatformInfo(platforms[0], CL_PLATFORM_EXTENSIONS, 0, NULL, &ext_size);
-  if (err) {
-    fprintf(stderr, "Unable to query OpenCL extensions: %d.\n", err);
-    exit(EXIT_FAILURE);
-  }
-  ext = (char*)malloc(ext_size);
-  err = clGetPlatformInfo(platforms[0], CL_PLATFORM_EXTENSIONS, ext_size, ext, NULL);
+  err = getPlatformString(&ext, platforms[0], CL_PLATFORM_EXTENSIONS);
   if (err) {
     fprintf(stderr, "Unable to query OpenCL extensions: %d.\n", err);
     exit(EXIT_FAILURE);
@@ -381,6 +568,9 @@ int main(int argc, const char *argv[])
   }
   if (test[0] == 0 || strcmp(test, "bounds") == 0) {
     testBounds(context, queue);
+  }
+  if (test[0] == 0 || strcmp(test, "embedded") == 0) {
+    testEmbedded(context, queue, platforms[0], devices, num_devices);
   }
   if (!(test[0] == 0 || strcmp(test, "leaks") == 0)) {
     err = clReleaseCommandQueue(queue);

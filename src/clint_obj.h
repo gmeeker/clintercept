@@ -127,9 +127,16 @@ void clint_kernel_exit(cl_kernel kernel);
 void clint_log_leaks(cl_context context);
 void clint_log_leaks_all(void);
 
-/* Modify clCreatContext parameters with CLINT_FORCE_DEVICE. */
+/* Modify clCreateContext parameters with CLINT_FORCE_DEVICE. */
 cl_device_type clint_modify_device_type(cl_device_type device_type);
 const cl_device_id *clint_modify_context_devices(const cl_context_properties *properties, cl_uint *num_devices, const cl_device_id *devices);
+
+/* Modify clBuildProgram/clCompileProgram parameters for CLINT_EMBEDDED. */
+const char *clint_modify_build_options(const char *options);
+
+/* Modify program source. */
+const char *clint_modify_program_source(const char *source);
+const char **clint_modify_program_sources(cl_uint count, const char **strings, const size_t **lengths);
 
 #ifdef __cplusplus
 }

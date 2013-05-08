@@ -97,7 +97,7 @@ CLINT_CHECK_THREAD, CLINT_CHECK_MAPPING, CLINT_CHECK_ACQUIRE, CLINT_CHECK_BOUNDS
 
 CLINT_EMBEDDED
 Enforce the minimum embedded profile requirements.
-CL_PLATFORM_PROFILE is set to EMBEDDED_PROFILE.
+CL_PLATFORM_PROFILE and CL_DEVICE_PROFILE are set to EMBEDDED_PROFILE.
 64-bit integers are supported unless cles_khr_int64 is disabled.
 3D images are not supported.
 read_imagef and read_imageh don't support CL_FILTER_LINEAR for CL_FLOAT or CL_HALF_FLOAT.
