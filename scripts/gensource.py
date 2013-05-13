@@ -478,7 +478,7 @@ def gen_func(out, f, typeMap):
     out.write('\tclint_init();\n')
     out.write('\tclint_autopool_begin(&pool);\n')
     out.write('\tif (clint_get_config(CLINT_TRACE))\n')
-    out.write('\t\tclint_log(%s);\n' % string.join(['"%s\n"' % fmt] + map(lambda a: gen_format_arg(a[0], a[1], typeMap, name, 0), args), ", "))
+    out.write('\t\tclint_log(%s);\n' % string.join(['"%s\\n"' % fmt] + map(lambda a: gen_format_arg(a[0], a[1], typeMap, name, 0), args), ", "))
     for a in args:
         check = gen_check_input_arg(a, args, name)
         if check:
@@ -498,7 +498,7 @@ def gen_func(out, f, typeMap):
     if do_errcode:
         errcode = gen_func_errcode(f)
         out.write('\tif (%s != CL_SUCCESS && clint_get_config(CLINT_ERRORS)) {\n' % errcode)
-        out.write('\t\tclint_log("ERROR in %s: %%s\n", clint_string_error(%s));\n' % (name, errcode))
+        out.write('\t\tclint_log("ERROR in %s: %%s\\n", clint_string_error(%s));\n' % (name, errcode))
         out.write('\t\tclint_log_abort();\n')
         out.write('\t}\n')
     if r != 'void' or args:
@@ -507,7 +507,7 @@ def gen_func(out, f, typeMap):
             out_args = [(r, 'retval')] + out_args
         out_fmt = name + ' returned ' + string.join(map(lambda a: ((a[1] == 'retval') and gen_format_str(a[0], typeMap, name, 1)) or (a[1] + '=' + gen_format_str(string.strip(a[0][:-1]), typeMap, name, 1)), out_args), " ")
         out.write('\tif (clint_get_config(CLINT_TRACE))\n')
-        out.write('\t\tclint_log(%s);\n' % string.join(['"%s\n"' % out_fmt] + map(lambda a: ((a[1] == 'retval') and 'retval') or gen_format_arg(a[0], a[1], typeMap, name, 1), out_args), ", "))
+        out.write('\t\tclint_log(%s);\n' % string.join(['"%s\\n"' % out_fmt] + map(lambda a: ((a[1] == 'retval') and 'retval') or gen_format_arg(a[0], a[1], typeMap, name, 1), out_args), ", "))
     checks = ''
     if do_errcode:
         indent = '\t\t'
@@ -761,7 +761,7 @@ def gen_func_source(file, funcs, typeMap):
     file.write('\terr = CLINTFUNC(clGetEventProfilingInfo)(event, CL_PROFILING_COMMAND_START, sizeof(cl_ulong), &start, NULL);\n')
     file.write('\tif (!err) return err;\n')
     file.write('\telapsed = (double)(end - start) * 1.0e-9;\n')
-    file.write('\tclint_log("PROFILE: %s %f\n", name, elapsed);\n')
+    file.write('\tclint_log("PROFILE: %s %f\\n", name, elapsed);\n')
     file.write('\treturn err;\n')
     file.write('}\n')
     file.write('\n')
