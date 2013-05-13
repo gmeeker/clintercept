@@ -38,6 +38,10 @@ Yes, it does print errors.  That's intentional because these are illegal kernels
 It shouldn't crash.  Note that you must enable CLIntercept to run this test.  It checks for this,
 because your OpenCL driver won't catch these mistakes and it may crash your display or worse.
 
+Unimplemented:
+Kernel bounds checking is not implemented.  This would require a full OpenCL source code parser and preprocessor.
+CLINT_CHECK_THREAD should detect cases where an object is referenced by a second thread before associated OpenCL commands have finished.
+
 Usage:
 
 CLINT_CONFIG_FILE <file>
