@@ -294,6 +294,11 @@ def gen_check_output_arg(arg, args, funcName, pointers_only=1):
         flag_args = filter(lambda a: a[0] == 'cl_mem_flags', args)
         if flag_args:
             check_args = tuple(check_args) + (flag_args[-1][1], sharing)
+        image_format_args = filter(lambda a: a[0] == 'const cl_image_format *', args)
+        if image_format_args:
+            check_args = tuple(check_args) + (image_format_args[-1][1],)
+        else:
+            check_args = tuple(check_args) + ('NULL',)
     if '*' in arg[0] and gen_format_struct_name(arg[0]) in gen_objects_list:
         if is_type_const(arg[0]):
             return None

@@ -38,6 +38,9 @@
 #define CL_MAP_WRITE_INVALIDATE_REGION (1 << 2)
 #endif
 
+static size_t clint_sizeof_channel_type(cl_channel_type data_type);
+static size_t clint_sizeof_image_format(const cl_image_format *image_format);
+
 #define CLINT_IMPL_OBJ_FUNCS(type)                                  \
                                                                     \
 CLINT_DEFINE_TREE_FUNCS(ClintObject_##type, cl_##type);             \
@@ -190,9 +193,9 @@ CLINT_IMPL_OBJ_FUNCS(command_queue);
 #undef ARGS
 #undef ARGNAMES
 #undef COPYARGS
-#define ARGS , cl_mem_flags flags, ClintObjSharing sharing
-#define ARGNAMES , flags, sharing
-#define COPYARGS obj->flags = flags; obj->sharing = sharing
+#define ARGS , cl_mem_flags flags, ClintObjSharing sharing, const cl_image_format *image_format
+#define ARGNAMES , flags, sharing, image_format
+#define COPYARGS obj->flags = flags; obj->sharing = sharing; obj->pixelSize = clint_sizeof_image_format(image_format)
 CLINT_IMPL_OBJ_FUNCS(mem);
 #undef ARGS
 #undef ARGNAMES
@@ -237,6 +240,8 @@ static size_t clint_sizeof_channel_type(cl_channel_type data_type)
 
 static size_t clint_sizeof_image_format(const cl_image_format *image_format)
 {
+  if (image_format == NULL)
+    return 0;
   switch (image_format->image_channel_order) {
   case CL_R:
   case CL_A:
@@ -289,9 +294,11 @@ static size_t clint_sizeof_image_format(const cl_image_format *image_format)
 void clint_set_image_format(cl_mem v, const cl_image_format *image_format)
 {
   if (clint_get_config(CLINT_TRACK)) {
-    ClintObject_mem *obj = clint_lookup_mem(v);
-    if (obj != NULL) {
-      obj->pixelSize = clint_sizeof_image_format(image_format);
+    if (image_format != NULL) {
+      ClintObject_mem *obj = clint_lookup_mem(v);
+      if (obj != NULL) {
+        obj->pixelSize = clint_sizeof_image_format(image_format);
+      }
     }
   }
 }

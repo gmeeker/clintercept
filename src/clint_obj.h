@@ -85,7 +85,7 @@ CLINT_DEFINE_OBJ_FUNCS(context);
 CLINT_DEFINE_OBJ_FUNCS(command_queue);
 #undef ARGS
 #undef ELEMS
-#define ARGS , cl_mem_flags flags, ClintObjSharing sharing
+#define ARGS , cl_mem_flags flags, ClintObjSharing sharing, const cl_image_format *image_format
 #define ELEMS                                                       \
   cl_mem_flags flags;                                               \
   ClintObjSharing sharing;                                          \
