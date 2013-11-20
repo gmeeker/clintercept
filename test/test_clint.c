@@ -513,7 +513,7 @@ int main(int argc, const char *argv[])
   }
 
   if (strstr(ext, "cl_CLINT_debugging") == NULL) {
-    fprintf(stderr, "ERROR: Test suite is not being run through Clint.\n");
+    fprintf(stderr, "ERROR: Test suite is not being run through CLIntercept.\n");
     exit(EXIT_FAILURE);
   }
 
