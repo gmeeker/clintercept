@@ -4,6 +4,7 @@ project (CLIntercept)
 
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/FindOpenCL/")
 find_package(OpenCL REQUIRED)
+find_package(Threads REQUIRED)
 
 include_directories(${OPENCL_INCLUDE_DIRS})
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src)
@@ -54,10 +55,10 @@ else()
 endif()
 
 add_executable (clinfo ${CMAKE_CURRENT_BINARY_DIR}/clint_opencl_types.c src/clinfo.c src/clint_config.c src/clint_data.c src/clint_log.c src/clint_thread.c)
-target_link_libraries(clinfo ${EXTRA_LINK_FLAGS} ${OPENCL_LIBRARIES})
+target_link_libraries(clinfo ${EXTRA_LINK_FLAGS} ${OPENCL_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})
 
 add_library (${CLINT_LIBNAME} SHARED ${CMAKE_CURRENT_BINARY_DIR}/clint_opencl_funcs.c ${CMAKE_CURRENT_BINARY_DIR}/clint_opencl_types.c src/clint.c src/clint_config.c src/clint_data.c src/clint_log.c src/clint_mem.c src/clint_obj.c src/clint_stack.c src/clint_thread.c src/clint_tree.c ${EXTRA_LIBS})
-target_link_libraries(${CLINT_LIBNAME} ${EXTRA_CLINT_LINK_FLAGS})
+target_link_libraries(${CLINT_LIBNAME} ${EXTRA_CLINT_LINK_FLAGS} ${CMAKE_THREAD_LIBS_INIT} ${CMAKE_DL_LIBS})
 #  install(TARGETS ${CLINT_LIBNAME}
 #          RUNTIME DESTINATION bin COMPONENT bin
 #          LIBRARY DESTINATION lib${LIB_SUFFIX} COMPONENT bin 
@@ -65,4 +66,4 @@ target_link_libraries(${CLINT_LIBNAME} ${EXTRA_CLINT_LINK_FLAGS})
 
 add_executable (test_tree test/test_tree.c src/clint_tree.c)
 add_executable (test_clint test/test_clint.c)
-target_link_libraries(test_clint ${EXTRA_LINK_FLAGS} ${OPENCL_LIBRARIES})
+target_link_libraries(test_clint ${EXTRA_LINK_FLAGS} ${OPENCL_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT})

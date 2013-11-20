@@ -33,7 +33,14 @@
 
 #include <windows.h>
 
-int clint_mem_alloc(struct ClintMem *mem, size_t bytes)
+static size_t clint_pagesize(void)
+{
+  SYSTEM_INFO info;
+  GetSystemInfo(&info);
+  return (size_t)info.dwPageSize;
+}
+
+int clint_mem_alloc(struct ClintMem *mem, size_t bytes, unsigned int flags)
 {
   size_t p = clint_pagesize();
   size_t memsize = (bytes + p - 1) & ~(p - 1);
@@ -54,7 +61,6 @@ int clint_mem_alloc(struct ClintMem *mem, size_t bytes)
   if ((flags & ClintMemProtection_Guard_After) != 0) {
     if (VirtualProtect((char*)mem->addr + mem->size_page, p, PAGE_NOACCESS, NULL) == 0)
       return 1;
-    }
     if ((flags & ClintMemProtection_Guard_Before) == 0) {
       /* Move pointer to end at the page (allowing for SIMD alignment). */
       size_t pad = mem->size_page - mem->size;
@@ -66,14 +72,14 @@ int clint_mem_alloc(struct ClintMem *mem, size_t bytes)
   return clint_mem_protect(mem, flags);
 }
 
-int clint_mem_protect(struct ClintMem *mem, size_t bytes)
+int clint_mem_protect(struct ClintMem *mem, unsigned int flags)
 {
   DWORD prot = PAGE_NOACCESS;
   if ((flags & ClintMemProtection_Execute) != 0) {
     if ((flags & ClintMemProtection_Write) != 0)
       prot = PAGE_EXECUTE_READWRITE;
     else
-      prot = PAGE_EXECUTE_READONLY;
+      prot = PAGE_EXECUTE_READ;
   } else {
     if ((flags & ClintMemProtection_Write) != 0)
       prot = PAGE_READWRITE;

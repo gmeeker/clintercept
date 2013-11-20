@@ -38,10 +38,17 @@
 
 #ifdef WIN32
 #include <windows.h>
+#include <process.h>
 #else
 #include <pthread.h>
 #include <signal.h>
 #include <setjmp.h>
+#endif
+
+#if defined(_MSC_VER) && (_MSC_VER < 1600)
+typedef unsigned char uint8_t;
+#else
+#include <stdint.h>
 #endif
 
 struct Program {
@@ -196,15 +203,19 @@ static void* do1Thread(void *data)
 static void testThread(cl_context context, cl_command_queue queue)
 {
   struct Program program;
+#ifdef WIN32
+  HANDLE threads[2];
+  unsigned int id;
+  DWORD thread_return;
+#else
+  pthread_t threads[2];
+#endif
   cl_int err = createProgram(context, &program, null_program_text);
   if (err != CL_SUCCESS) {
     fprintf(stderr, "Unable to compile OpenCL program: %d.\n", err);
     return;
   }
 #ifdef WIN32
-  HANDLE threads[2];
-  unsigned int id;
-  DWORD thread_return;
   threads[0] = (HANDLE)_beginthreadex(NULL, 0, do1Thread, program.kernel, 0, &id);
   threads[1] = (HANDLE)_beginthreadex(NULL, 0, do1Thread, program.kernel, 0, &id);
   WaitForSingleObject(threads[0], INFINITE);
@@ -212,7 +223,6 @@ static void testThread(cl_context context, cl_command_queue queue)
   WaitForSingleObject(threads[1], INFINITE);
   GetExitCodeThread(threads[1], &thread_return);
 #else
-  pthread_t threads[2];
   if (pthread_create(&threads[0], NULL, do1Thread, program.kernel) >= 0 &&
       pthread_create(&threads[1], NULL, do1Thread, program.kernel) >= 0) {
     void *thread_return;
@@ -225,10 +235,9 @@ static void testThread(cl_context context, cl_command_queue queue)
 
 #if defined(WIN32)
 #define START_BAD_ACCESS() __try {
-#define END_BAD_ACCESS()
+#define END_BAD_ACCESS()                                \
   } __except (EXCEPTION_EXECUTE_HANDLER) {              \
     fprintf(stderr, "Illegal memory access caught!\n"); \
-    return 0;                                           \
   }
 #else
 static jmp_buf handle_sig_env;

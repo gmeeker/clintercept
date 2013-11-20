@@ -49,7 +49,6 @@ char *clint_get_stack()
   char *buf;
   size_t size, bufi;
   int i, count;
-  char tmp[8];
 
   process = GetCurrentProcess();
   SymInitialize(process, NULL, TRUE);
@@ -58,14 +57,15 @@ char *clint_get_stack()
   symbol = (SYMBOL_INFO*)calloc(sizeof(SYMBOL_INFO) + 256 * sizeof(char), 1);
   symbol->MaxNameLen = 255;
   symbol->SizeOfStruct = sizeof(SYMBOL_INFO);
-  size = 0;
+  size = 1;
   for (i = 0; i < count; ++i) {
     SymFromAddr(process, (DWORD64)(frames[i]), 0, symbol);
-    size += sprintf_s(tmp, sizeof(tmp), "%i: %s - 0x%0X\n", count - i - 1, symbol->Name, symbol->Address);
+    size += _scprintf("%i: %s - 0x%0X\n", count - i - 1, symbol->Name, symbol->Address);
   }
   buf = malloc(size);
   bufi = 0;
   for (i = 0; i < count; ++i) {
+    SymFromAddr(process, (DWORD64)(frames[i]), 0, symbol);
     bufi += sprintf_s(buf + bufi, size - bufi, "%i: %s - 0x%0X\n", count - i - 1, symbol->Name, symbol->Address);
   }
   free(symbol);

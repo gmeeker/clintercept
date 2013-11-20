@@ -14,9 +14,9 @@ pat_func_ptr = re.compile(r'((CL_CALLBACK)?\s*[*])\s*(\w+)')
 pat_return = re.compile(r'CL_API_ENTRY\s+(?:CL_[A-Z]*_PREFIX__VERSION[_0-9]*_DEPRECATED\s*)?(\w+(\s*[*])?)\s+CL_API_CALL')
 pat_suffix = re.compile(r'\s+CL_[A-Z]*_SUFFIX__VERSION[_0-9A-Z]*')
 pat_comment = re.compile(r'/[*]\s*(\w*).*?[*]/')
-pat_c_cpp_comment = re.compile(r'(/[*].*[*]/)|(//.*\n?)')
-pat_type_comment = re.compile(r'/[*]\s*(Additional\s+)?(cl_[a-z0-9_]+)\s*.*[*]/')
-pat_type_cpp_comment = re.compile(r'//\s*(Additional\s+)?(cl_[a-z0-9_]+)\s*.*\n?')
+pat_c_cpp_comment = re.compile(r'\s*(/[*].*[*]/)|(//.*\n?)')
+pat_type_comment = re.compile(r'\s*/[*]\s*(Additional\s+)?(cl_[a-z0-9_]+)\s*.*[*]/')
+pat_type_cpp_comment = re.compile(r'\s*//\s*(Additional\s+)?(cl_[a-z0-9_]+)\s*.*\n?')
 pat_err = re.compile(r'#define\s+(CL_[A-Za-z0-9_]+)\s+(-?[0-9]+)')
 pat_define = re.compile(r'#define\s+(CL_[A-Za-z0-9_]+)\s+((0x[0-9A-Fa-f]+)|(-?[0-9]+))')
 pat_bitfield = re.compile(r'#define\s+(CL_[A-Za-z0-9_]+)\s+(\([0-9]+\s*<<\s*[0-9]+\))')
@@ -177,6 +177,13 @@ def append_type_map(typeMap, key, value):
         return
     if key in typeMap:
         if not value[0] in map(lambda x: x[0], typeMap[key]):
+            if key == 'token':
+                # Avoid duplicates
+                if value[1] in map(lambda x: x[1], typeMap[key]):
+                    if string.split(value[0], '_')[0] in ('AMD','KHR','NV'):
+                        return
+                    else:
+                        typeMap[key] = filter(lambda x,v=value[1]: x[1] != v, typeMap[key])
             typeMap[key].append(value)
     else:
         typeMap[key] = [value]
@@ -359,9 +366,11 @@ def gen_custom_func_begin(out, f, typeMap):
         out.write('\t\tif (%s == NULL) %s = &profile_event;\n' % (arg[1], arg[1]))
         out.write('\t}\n')
     if has_prefix(name, 'clCreate') and 'CommandQueue' in name:
-        arg = filter(lambda a: a[0] == 'cl_command_queue_properties', args)[-1]
-        out.write('\tif (clint_get_config(CLINT_PROFILE))\n')
-        out.write('\t\t%s |= CL_QUEUE_PROFILING_ENABLE;\n' % arg[1])
+        arg = filter(lambda a: a[0] == 'cl_command_queue_properties', args)
+        if arg:
+            arg = arg[-1]
+            out.write('\tif (clint_get_config(CLINT_PROFILE))\n')
+            out.write('\t\t%s |= CL_QUEUE_PROFILING_ENABLE;\n' % arg[1])
     if has_prefix(name, 'clEnqueueAcquire'):
         sharing = gen_mem_sharing(name)
         out.write('\tclint_acquire_shared_mems(%s, %s, %s);\n' % (args[1][1], args[2][1], sharing))
@@ -541,7 +550,6 @@ def scanFile(file, filename, funcs, typeMap, typeIncludes):
     text = file.read()
     protos = pat_func.findall(text)
     for proto in protos:
-        print proto
         name = pat_name.search(proto).group(1)
         r = pat_return.search(proto).group(1)
         argStr = pat_func_before_args.sub('', proto)
@@ -583,7 +591,9 @@ def scanFile(file, filename, funcs, typeMap, typeIncludes):
             m = pat_type_comment.search(line)
             if not m:
                 m = pat_type_cpp_comment.search(line)
-            if m and not 'extension' in line:
+            if m and 'cl_mem flag - bitfield' in line:
+                type_name = 'cl_mem_flags'
+            elif m and not 'extension' in line:
                 type_name = fix_type_name(m.group(2))
             elif '/* command execution status */' in line:
                 type_name = 'execution_status'
@@ -600,6 +610,8 @@ def scanFile(file, filename, funcs, typeMap, typeIncludes):
                     if v[1][:2] == '0x':
                         if 'CL_DEVICE' in v[0]:
                             append_type_map(typeMap, 'cl_device_info', v)
+                        elif 'CL_IMAGE' in v[0]:
+                            append_type_map(typeMap, 'cl_image_info', v)
                         elif 'CL_CGL' in v[0]:
                             append_type_map(typeMap, 'cl_gl_platform_info', v)
                         elif 'CL_COMMAND' in v[0]:
@@ -608,17 +620,28 @@ def scanFile(file, filename, funcs, typeMap, typeIncludes):
                             append_type_map(typeMap, 'cl_context_properties', v)
                         elif 'CL_PROGRAM' in v[0]:
                             append_type_map(typeMap, 'cl_program_info', v)
-                        elif v[0] in ('CL_1RGB_APPLE', 'CL_BGR1_APPLE'):
+                        elif 'CL_AFFINITY_DOMAIN' in v[0]:
+                            append_type_map(typeMap, 'cl_device_affinity_domain', v)
+                        elif v[0] in ('CL_CONTEXT_MEMORY_INITIALIZE_KHR',
+                                      'CL_CONTEXT_TERMINATE_KHR'):
+                            append_type_map(typeMap, 'cl_context_properties', v)
+                        elif v[0] in ('CL_1RGB_APPLE', 'CL_BGR1_APPLE', 'CL_ABGR_APPLE'):
                             append_type_map(typeMap, 'cl_channel_order', v)
-                        elif v[0] in ('CL_YCbYCr_APPLE', 'CL_CbYCrY_APPLE', 'CL_SFIXED14_APPLE'):
+                        elif v[0] in ('CL_YCbYCr_APPLE', 'CL_CbYCrY_APPLE', 'CL_SFIXED14_APPLE', 'CL_BIASED_HALF_APPLE'):
                             append_type_map(typeMap, 'cl_channel_type', v)
+                        elif 'CL_CONTEXT_OFFLINE_DEVICES_AMD' == v[0]:
+                            append_type_map(typeMap, 'cl_context_info', v)
                         else:
                             sys.stderr.write('Ungrouped #define %s %s\n' % (m.group(1), m.group(2)))
                             continue
                         append_type_map(typeMap, 'token', v)
                 m = pat_bitfield.search(line)
                 if m:
-                    sys.stderr.write('Ungrouped bitfield %s %s\n' % (m.group(1), m.group(2)))
+                    v = (m.group(1), m.group(2))
+                    if 'CL_MEM_USE' in v[0]:
+                        append_type_map(typeMap, 'cl_mem_flags', v)
+                    else:
+                        sys.stderr.write('Ungrouped bitfield %s %s\n' % (m.group(1), m.group(2)))
             includeName = os.path.basename(filename)
             if type_name and includeName != 'cl.h' and not includeName in typeIncludes:
                 typeIncludes.append(includeName)
@@ -684,7 +707,7 @@ def gen_type_source(file, typeMap):
             file.write('\tconst char *s = "";\n')
             file.write('\t%s v0 = v;\n' % gen_type_arg(t))
             file.write('\tif (v == 0)\n')
-            file.write('\t\treturn s;\n')
+            file.write('\t\treturn "0";\n')
             for i in typeMap[t]:
                 file.write('\tif ((v & %s) != 0) { /* %s */\n' % i)
                 file.write('\t\tv &= ~(%s);\n' % i[0])
@@ -720,6 +743,12 @@ def gen_type_source(file, typeMap):
 def gen_func_source(file, funcs, typeMap):
     file.write('#define CL_USE_DEPRECATED_OPENCL_1_0_APIS\n')
     file.write('#define CL_USE_DEPRECATED_OPENCL_1_1_APIS\n')
+    file.write('\n')
+    file.write('#if defined(WIN32)\n')
+    file.write('#include <CL/cl_platform.h>\n')
+    file.write('#undef CL_API_ENTRY\n')
+    file.write('#define CL_API_ENTRY __declspec(dllexport)\n')
+    file.write('#endif\n')
     file.write('\n')
     gen_top(file)
     file.write('\n')
@@ -780,6 +809,7 @@ def gen_func_source(file, funcs, typeMap):
     for f in funcs:
         gen_lookup(file, f)
     file.write('#endif /*__APPLE__*/\n')
+    file.write('\t\t\tclint_opencl_init();\n')
     file.write('\t\t}\n')
     file.write('\t}\n')
     file.write('}\n')

@@ -34,6 +34,10 @@
 
 #include <string.h>
 
+#if defined(WIN32)
+#include <malloc.h>
+#endif
+
 #ifndef CL_MAP_WRITE_INVALIDATE_REGION
 #define CL_MAP_WRITE_INVALIDATE_REGION (1 << 2)
 #endif
@@ -604,16 +608,18 @@ const char **clint_modify_program_sources(cl_uint count, const char **strings, c
 {
   if (count > 0) {
     const char *oldstr = strings[0];
+    const char *newstr;
     if (*lengths != NULL && (*lengths)[0] > 0) {
       char *s = (char*)clint_autopool_malloc((*lengths)[0] + 1);
       memcpy(s, strings[0], (*lengths)[0]);
       s[(*lengths)[0]] = 0;
       oldstr = s;
     }
-    const char *newstr = clint_modify_program_source(oldstr);
+    newstr = clint_modify_program_source(oldstr);
     if (newstr != oldstr) {
-      const char **newstrings = (const char **)clint_autopool_malloc((size_t)count * sizeof(const char*));
-      memcpy(newstrings, *strings, (size_t)count * sizeof(const char*));
+      void *newstringsbuf = clint_autopool_malloc((size_t)count * sizeof(const char*));
+      const char **newstrings = (const char **)newstringsbuf;
+      memcpy(newstringsbuf, strings, (size_t)count * sizeof(const char*));
       newstrings[0] = newstr;
       if (*lengths != NULL) {
         size_t *newlengths = (size_t*)clint_autopool_malloc((size_t)count * sizeof(size_t));

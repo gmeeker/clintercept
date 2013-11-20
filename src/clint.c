@@ -26,6 +26,10 @@
 ** THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+#if !defined(__APPLE__) && !defined(WIN32)
+#define _GNU_SOURCE
+#endif
+
 #include "clint.h"
 #include "clint_atomic.h"
 #include "clint_config.h"
@@ -36,11 +40,28 @@
 #include <ctype.h>
 #include <string.h>
 
+#ifndef __has_attribute
+#define __has_attribute(x) 0
+#endif
+
+#if !defined(WIN32)
+#if __has_attribute(destructor)
+#define HAVE_ATTRIBUTE_DESTRUCTOR 1
+#elif !defined(__clang__) && defined(__GNUC__)
+#define HAVE_ATTRIBUTE_DESTRUCTOR 1
+#endif
+#if HAVE_ATTRIBUTE_DESTRUCTOR
+__attribute__((destructor)) void clint_destructor(void)
+{
+  clint_opencl_shutdown();
+}
+#endif
+#endif
+
 #ifdef __APPLE__
 
 void* clint_opencl_load(void)
 {
-  clint_opencl_init();
   return (void*)1;
 }
 
@@ -67,25 +88,39 @@ void clint_opencl_unload(void *dll)
 #define LOAD_LIBRARY_SEARCH_USER_DIRS 0x00000400
 #endif
 
+BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpReserved)
+{
+  (void)hinstDLL;
+  switch (fdwReason) { 
+  case DLL_PROCESS_ATTACH:
+    break;
+  case DLL_THREAD_ATTACH:
+    break;
+  case DLL_THREAD_DETACH:
+    break;
+  case DLL_PROCESS_DETACH:
+    /* Check if it's safe to release memory. */
+    if (lpReserved == NULL) {
+      clint_opencl_shutdown();
+    }
+    break;
+  }
+  return TRUE;
+}
+
 void* clint_opencl_load(void)
 {
   void *lib;
 
-  /* Load OpenCL.dll without searching application directory,
-     presumably where this library is located. */
+  /* To load the real OpenCL.dll we must use a full path.
+     LoadLibraryEx() will always find our (already loaded) DLL. */
 
-  if (GetProcAddress(GetModuleHandle(_T("kernel32.dll")), "AddDllDirectory")) {
-    lib = LoadLibraryEx(_T("OpenCL.dll"),
-                        NULL,
-                        LOAD_LIBRARY_SEARCH_SYSTEM32 | LOAD_LIBRARY_SEARCH_USER_DIRS);
-  } else {
-    TCHAR path[_MAX_PATH];
-    if (SHGetFolderPath(NULL, CSIDL_SYSTEM, NULL, SHGFP_TYPE_CURRENT, path) != S_OK)
-      return NULL;
-    _tcscat_s(path, _countof(path), _T("\\OpenCL.dll"));
-    lib = LoadLibrary(path);
-  }
-  clint_opencl_init();
+  TCHAR path[_MAX_PATH];
+  if (SHGetFolderPath(NULL, CSIDL_SYSTEM, NULL, SHGFP_TYPE_CURRENT, path) != S_OK)
+    return NULL;
+  _tcscat_s(path, _countof(path), _T("\\OpenCL.dll"));
+  lib = LoadLibrary(path);
+
   return lib;
 }
 
@@ -102,10 +137,12 @@ void clint_opencl_unload(void *dll)
 
 #else
 
+#include <limits.h>
+#include <dlfcn.h>
+
 void* clint_opencl_load(void)
 {
   void *lib = dlopen("OpenCL.so", RTLD_LAZY | RTLD_LOCAL);
-  clint_opencl_init();
   return lib;
 }
 
@@ -156,9 +193,11 @@ void clint_opencl_init()
   }
 #endif
 
+#if !defined(WIN32) && !HAVE_ATTRIBUTE_DESTRUCTOR
   if (clint_get_config(CLINT_LEAKS)) {
     atexit(&clint_log_leaks_all);
   }
+#endif
 
   clint_log_describe();
 
@@ -173,6 +212,9 @@ void clint_opencl_init()
 
 void clint_opencl_shutdown()
 {
+  if (clint_get_config(CLINT_LEAKS)) {
+    clint_log_leaks_all();
+  }
   clint_data_shutdown();
   clint_log_shutdown();
 }
@@ -244,7 +286,12 @@ void clint_extensions_modify(size_t len, char *s, size_t *ret_ptr)
         if (exts_src != NULL) {
           char *exts;
           char *match;
-          if ((exts = strdup(exts_src)) != NULL) {
+#if defined(WIN32)
+          exts = _strdup(exts_src);
+#else
+          exts = strdup(exts_src);
+#endif
+          if (exts != NULL) {
             size_t i, j;
             for (i = 0; exts[i] != 0; i++) {
               while (isspace(exts[i]))

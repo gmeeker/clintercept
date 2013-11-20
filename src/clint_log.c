@@ -98,6 +98,7 @@ typedef cl_bitfield         cl_device_affinity_domain;
 
 #define ERR(a) case a: return #a;
 #define LOG_ARGS(a) a, #a
+#define ARG_WITH_SIZE(a) &a, sizeof(a)
 #define DEVICE_ARGS(a) CL_DEVICE_##a, "CL_DEVICE_" #a
 #define PLATFORM_ARGS(a) CL_PLATFORM_##a, "CL_PLATFORM_" #a
 
@@ -140,13 +141,12 @@ void clint_log(const char *fmt, ...)
   char *buf;
   size_t size;
   va_list ap;
-  char tmp[8];
 
   va_start(ap, fmt);
   if (g_clint_log_fp != NULL) {
     vfprintf(g_clint_log_fp, fmt, ap);
   } else {
-    size = (size_t)vsprintf_s(tmp, sizeof(tmp), fmt, ap) + 1;
+    size = (size_t)_vscprintf(fmt, ap) + 1;
     buf = (char*)malloc(size);
     vsprintf_s(buf, size, fmt, ap);
     OutputDebugStringA(buf);
@@ -222,20 +222,18 @@ void clint_log_describe()
   }
 }
 
-typedef long long clint_log_int_t;
-
 static void clint_log_device_raw(cl_device_id device, cl_device_info param, const char *name, const char *value)
 {
   clint_log("\tdevice[%p]: %s = %s\n", device, name, value);
 }
 
-static cl_bool clint_get_device_int(cl_device_id device, cl_device_info param, const char *name, clint_log_int_t *v)
+static cl_bool clint_get_device_int(cl_device_id device, cl_device_info param, const char *name, void *v, size_t size_v)
 {
   cl_int err;
   size_t size;
 
-  if ((err = clGetDeviceInfo(device, param, sizeof(*v), v, &size)) == CL_SUCCESS) {
-    if (size > sizeof(*v)) {
+  if ((err = clGetDeviceInfo(device, param, size_v, v, &size)) == CL_SUCCESS) {
+    if (size > size_v) {
       clint_log("\tdevice[%p]: %s unexpected size: %lu\n", device, name, (unsigned long)size);
     }
     return CL_TRUE;
@@ -263,25 +261,89 @@ static void clint_log_device_string(cl_device_id device, cl_device_info param, c
   }
 }
 
-static void clint_log_device_int(cl_device_id device, cl_device_info param, const char *name, cl_bool asHex)
+static void clint_log_device_version(cl_device_id device, cl_device_info param, const char *name,
+                                     int *major, int *minor)
 {
   cl_int err;
   size_t size;
-  clint_log_int_t v;
 
-  if ((err = clGetDeviceInfo(device, param, sizeof(v), &v, &size)) == CL_SUCCESS) {
-    if (size > sizeof(v)) {
+  *major = 1;
+  *minor = 0;
+  if ((err = clGetDeviceInfo(device, param, 0, NULL, &size)) == CL_SUCCESS) {
+    void *buf = malloc(size);
+    if (buf != NULL) {
+      if ((err = clGetDeviceInfo(device, param, size, buf, NULL)) == CL_SUCCESS) {
+        int scan_count;
+#if defined(WIN32)
+        scan_count = sscanf_s((const char*)buf, " OpenCL %d.%d", major, minor);
+#else
+        scan_count = sscanf((const char*)buf, " OpenCL %d.%d", major, minor);
+#endif
+        if (scan_count != 2) {
+          *major = 1;
+          *minor = 0;
+        }
+        clint_log("\tdevice[%p]: %s = %s\n", device, name, (const char*)buf);
+      }
+      free(buf);
+    }
+  } else {
+    clint_log("\tdevice[%p]: %s: %s\n", device, name, clint_string_error(err));
+  }
+}
+
+static void clint_log_device_int(cl_device_id device, cl_device_info param, const char *name, size_t size_v, cl_bool asHex)
+{
+  cl_int err;
+  size_t size;
+  union {
+    char c;
+    short s;
+    int i;
+    long l;
+    long long ll;
+    cl_uint clui;
+  } v;
+
+  if ((err = clGetDeviceInfo(device, param, size_v, &v, &size)) == CL_SUCCESS) {
+    if (size > size_v) {
       clint_log("\tdevice[%p]: %s unexpected size: %lu\n", device, name, (unsigned long)size);
     }
-    if (asHex) {
-      clint_log("\tdevice[%p]: %s = 0x%llx\n", device, name, v);
-    } else {
-      clint_log("\tdevice[%p]: %s = %lld\n", device, name, v);
+    if (size_v == sizeof(char)) {
+      if (asHex) {
+        clint_log("\tdevice[%p]: %s = 0x%x\n", device, name, (int)v.c);
+      } else {
+        clint_log("\tdevice[%p]: %s = %d\n", device, name, (int)v.c);
+      }
+    } else if (size_v == sizeof(short)) {
+      if (asHex) {
+        clint_log("\tdevice[%p]: %s = 0x%x\n", device, name, (int)v.s);
+      } else {
+        clint_log("\tdevice[%p]: %s = %d\n", device, name, (int)v.s);
+      }
+    } else if (size_v == sizeof(int)) {
+      if (asHex) {
+        clint_log("\tdevice[%p]: %s = 0x%x\n", device, name, v.i);
+      } else {
+        clint_log("\tdevice[%p]: %s = %d\n", device, name, v.i);
+      }
+    } else if (size_v == sizeof(long)) {
+      if (asHex) {
+        clint_log("\tdevice[%p]: %s = 0x%lx\n", device, name, v.l);
+      } else {
+        clint_log("\tdevice[%p]: %s = %ld\n", device, name, v.l);
+      }
+    } else if (size_v == sizeof(long long)) {
+      if (asHex) {
+        clint_log("\tdevice[%p]: %s = 0x%llx\n", device, name, v.ll);
+      } else {
+        clint_log("\tdevice[%p]: %s = %lld\n", device, name, v.ll);
+      }
     }
     if (param == CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS) {
       size_t items[3];
       items[0] = items[1] = items[2] = 0;
-      if ((err = clGetDeviceInfo(device, CL_DEVICE_MAX_WORK_ITEM_SIZES, sizeof(size_t)*(size_t)v, items, &size)) == CL_SUCCESS) {
+      if ((err = clGetDeviceInfo(device, CL_DEVICE_MAX_WORK_ITEM_SIZES, sizeof(size_t)*(size_t)v.clui, items, &size)) == CL_SUCCESS) {
         clint_log("\tdevice[%p]: %s: (%lu, %lu, %lu)\n",
                   device, "CL_MAX_WORK_ITEM_SIZES", (unsigned long)items[0], (unsigned long)items[1], (unsigned long)items[2]);
       }
@@ -302,7 +364,8 @@ static void clint_log_device_partition(cl_device_id device, cl_device_info param
       if ((err = clGetDeviceInfo(device, param, size, buf, NULL)) == CL_SUCCESS) {
         size /= sizeof(cl_device_partition_property);
         for (i = 0; i < size; i++) {
-          clint_log("\tdevice[%p]: %s[%ld] = %s\n", device, name, (unsigned long)i, clint_string_device_partition_property(buf[i]));
+          clint_log("\tdevice[%p]: %s[%ld] = %s\n", device, name, (unsigned long)i,
+                    (buf[i] ? clint_string_device_partition_property(buf[i]) : "0"));
         }
       }
       free(buf);
@@ -407,108 +470,133 @@ void clint_log_device_formats(cl_platform_id platform, cl_device_id device)
 
 void clint_log_device(cl_platform_id platform, cl_device_id device)
 {
-  clint_log_int_t value_int;
+  cl_device_type device_type;
+  cl_device_exec_capabilities exec_capabilities;
+  cl_device_mem_cache_type mem_cache_type;
+  cl_device_local_mem_type local_mem_type;
+  cl_device_fp_config fp_config;
+  cl_command_queue_properties queue_properties;
+  cl_device_affinity_domain affinity_domain;
+
+  int major=1, minor=0;
 
   clint_log_device_string(device, DEVICE_ARGS(NAME));
   clint_log_device_string(device, DEVICE_ARGS(VENDOR));
   clint_log_device_string(device, DEVICE_ARGS(PROFILE));
-  clint_log_device_string(device, DEVICE_ARGS(VERSION));
+  clint_log_device_version(device, DEVICE_ARGS(VERSION), &major, &minor);
   clint_log_device_string(device, DEVICE_ARGS(EXTENSIONS));
   clint_log_device_string(device, DEVICE_ARGS(OPENCL_C_VERSION));
   clint_log_device_string(device, LOG_ARGS(CL_DRIVER_VERSION));
 
-  if (clint_get_device_int(device, DEVICE_ARGS(TYPE), &value_int)) {
+  if (clint_get_device_int(device, DEVICE_ARGS(TYPE),
+                           ARG_WITH_SIZE(device_type))) {
     clint_log_device_raw(device, DEVICE_ARGS(TYPE),
-                         clint_string_device_type((cl_device_type)value_int));
+                         clint_string_device_type(device_type));
   }
-  clint_log_device_int(device, DEVICE_ARGS(PLATFORM), CL_TRUE);
-  if (clint_get_device_int(device, DEVICE_ARGS(EXECUTION_CAPABILITIES), &value_int)) {
+  clint_log_device_int(device, DEVICE_ARGS(PLATFORM), sizeof(cl_platform_id), CL_TRUE);
+  if (clint_get_device_int(device, DEVICE_ARGS(EXECUTION_CAPABILITIES),
+                           ARG_WITH_SIZE(exec_capabilities))) {
     clint_log_device_raw(device, DEVICE_ARGS(EXECUTION_CAPABILITIES),
-                         clint_string_device_exec_capabilities((cl_device_exec_capabilities)value_int));
+                         clint_string_device_exec_capabilities(exec_capabilities));
   }
-  if (clint_get_device_int(device, DEVICE_ARGS(GLOBAL_MEM_CACHE_TYPE), &value_int)) {
+  if (clint_get_device_int(device, DEVICE_ARGS(GLOBAL_MEM_CACHE_TYPE),
+                           ARG_WITH_SIZE(mem_cache_type))) {
     clint_log_device_raw(device, DEVICE_ARGS(GLOBAL_MEM_CACHE_TYPE),
-                         clint_string_device_mem_cache_type((cl_device_mem_cache_type)value_int));
+                         clint_string_device_mem_cache_type(mem_cache_type));
   }
-  if (clint_get_device_int(device, DEVICE_ARGS(LOCAL_MEM_TYPE), &value_int)) {
+  if (clint_get_device_int(device, DEVICE_ARGS(LOCAL_MEM_TYPE),
+                           ARG_WITH_SIZE(local_mem_type))) {
     clint_log_device_raw(device, DEVICE_ARGS(LOCAL_MEM_TYPE),
-                         clint_string_device_local_mem_type((cl_device_local_mem_type)value_int));
+                         clint_string_device_local_mem_type(local_mem_type));
   }
 
-  if (clint_get_device_int(device, DEVICE_ARGS(SINGLE_FP_CONFIG), &value_int)) {
+  if (clint_get_device_int(device, DEVICE_ARGS(SINGLE_FP_CONFIG),
+                           ARG_WITH_SIZE(fp_config))) {
     clint_log_device_raw(device, DEVICE_ARGS(SINGLE_FP_CONFIG),
-                         clint_string_device_fp_config((cl_device_fp_config)value_int));
+                         clint_string_device_fp_config(fp_config));
   }
-  if (clint_get_device_int(device, DEVICE_ARGS(DOUBLE_FP_CONFIG), &value_int)) {
+  if (clint_get_device_int(device, DEVICE_ARGS(DOUBLE_FP_CONFIG),
+                           ARG_WITH_SIZE(fp_config))) {
     clint_log_device_raw(device, DEVICE_ARGS(DOUBLE_FP_CONFIG),
-                         clint_string_device_fp_config((cl_device_fp_config)value_int));
+                         clint_string_device_fp_config(fp_config));
   }
-  if (clint_get_device_int(device, DEVICE_ARGS(HALF_FP_CONFIG), &value_int)) {
+  if (clint_get_device_int(device, DEVICE_ARGS(HALF_FP_CONFIG),
+                           ARG_WITH_SIZE(fp_config))) {
     clint_log_device_raw(device, DEVICE_ARGS(HALF_FP_CONFIG),
-                         clint_string_device_fp_config((cl_device_fp_config)value_int));
+                         clint_string_device_fp_config(fp_config));
   }
-  clint_log_device_int(device, DEVICE_ARGS(QUEUE_PROPERTIES), CL_TRUE);
+  if (clint_get_device_int(device, DEVICE_ARGS(QUEUE_PROPERTIES),
+                           ARG_WITH_SIZE(queue_properties))) {
+    clint_log_device_raw(device, DEVICE_ARGS(QUEUE_PROPERTIES),
+                         clint_string_command_queue_properties(queue_properties));
+  }
 
-  clint_log_device_int(device, DEVICE_ARGS(VENDOR_ID), CL_FALSE);
-  clint_log_device_int(device, DEVICE_ARGS(MAX_COMPUTE_UNITS), CL_FALSE);
-  clint_log_device_int(device, DEVICE_ARGS(MAX_WORK_ITEM_DIMENSIONS), CL_FALSE);
-  clint_log_device_int(device, DEVICE_ARGS(MAX_WORK_GROUP_SIZE), CL_FALSE);
-  clint_log_device_int(device, DEVICE_ARGS(PREFERRED_VECTOR_WIDTH_CHAR), CL_FALSE);
-  clint_log_device_int(device, DEVICE_ARGS(PREFERRED_VECTOR_WIDTH_SHORT), CL_FALSE);
-  clint_log_device_int(device, DEVICE_ARGS(PREFERRED_VECTOR_WIDTH_INT), CL_FALSE);
-  clint_log_device_int(device, DEVICE_ARGS(PREFERRED_VECTOR_WIDTH_LONG), CL_FALSE);
-  clint_log_device_int(device, DEVICE_ARGS(PREFERRED_VECTOR_WIDTH_FLOAT), CL_FALSE);
-  clint_log_device_int(device, DEVICE_ARGS(PREFERRED_VECTOR_WIDTH_DOUBLE), CL_FALSE);
-  clint_log_device_int(device, DEVICE_ARGS(MAX_CLOCK_FREQUENCY), CL_FALSE);
-  clint_log_device_int(device, DEVICE_ARGS(ADDRESS_BITS), CL_FALSE);
-  clint_log_device_int(device, DEVICE_ARGS(MAX_MEM_ALLOC_SIZE), CL_FALSE);
-  clint_log_device_int(device, DEVICE_ARGS(IMAGE_SUPPORT), CL_FALSE);
-  clint_log_device_int(device, DEVICE_ARGS(MAX_READ_IMAGE_ARGS), CL_FALSE);
-  clint_log_device_int(device, DEVICE_ARGS(MAX_WRITE_IMAGE_ARGS), CL_FALSE);
-  clint_log_device_int(device, DEVICE_ARGS(IMAGE2D_MAX_WIDTH), CL_FALSE);
-  clint_log_device_int(device, DEVICE_ARGS(IMAGE2D_MAX_HEIGHT), CL_FALSE);
-  clint_log_device_int(device, DEVICE_ARGS(IMAGE3D_MAX_WIDTH), CL_FALSE);
-  clint_log_device_int(device, DEVICE_ARGS(IMAGE3D_MAX_HEIGHT), CL_FALSE);
-  clint_log_device_int(device, DEVICE_ARGS(IMAGE3D_MAX_DEPTH), CL_FALSE);
-  clint_log_device_int(device, DEVICE_ARGS(MAX_SAMPLERS), CL_FALSE);
-  clint_log_device_int(device, DEVICE_ARGS(MAX_PARAMETER_SIZE), CL_FALSE);
-  clint_log_device_int(device, DEVICE_ARGS(MEM_BASE_ADDR_ALIGN), CL_FALSE);
-  clint_log_device_int(device, DEVICE_ARGS(MIN_DATA_TYPE_ALIGN_SIZE), CL_FALSE);
-  clint_log_device_int(device, DEVICE_ARGS(GLOBAL_MEM_CACHELINE_SIZE), CL_FALSE);
-  clint_log_device_int(device, DEVICE_ARGS(GLOBAL_MEM_CACHE_SIZE), CL_FALSE);
-  clint_log_device_int(device, DEVICE_ARGS(GLOBAL_MEM_SIZE), CL_FALSE);
-  clint_log_device_int(device, DEVICE_ARGS(MAX_CONSTANT_BUFFER_SIZE), CL_FALSE);
-  clint_log_device_int(device, DEVICE_ARGS(MAX_CONSTANT_ARGS), CL_FALSE);
-  clint_log_device_int(device, DEVICE_ARGS(LOCAL_MEM_SIZE), CL_FALSE);
-  clint_log_device_int(device, DEVICE_ARGS(ERROR_CORRECTION_SUPPORT), CL_FALSE);
-  clint_log_device_int(device, DEVICE_ARGS(PROFILING_TIMER_RESOLUTION), CL_FALSE);
-  clint_log_device_int(device, DEVICE_ARGS(ENDIAN_LITTLE), CL_FALSE);
-  clint_log_device_int(device, DEVICE_ARGS(AVAILABLE), CL_FALSE);
-  clint_log_device_int(device, DEVICE_ARGS(COMPILER_AVAILABLE), CL_FALSE);
-  clint_log_device_int(device, DEVICE_ARGS(PREFERRED_VECTOR_WIDTH_HALF), CL_FALSE);
-  clint_log_device_int(device, DEVICE_ARGS(HOST_UNIFIED_MEMORY), CL_FALSE);
-  clint_log_device_int(device, DEVICE_ARGS(NATIVE_VECTOR_WIDTH_CHAR), CL_FALSE);
-  clint_log_device_int(device, DEVICE_ARGS(NATIVE_VECTOR_WIDTH_SHORT), CL_FALSE);
-  clint_log_device_int(device, DEVICE_ARGS(NATIVE_VECTOR_WIDTH_INT), CL_FALSE);
-  clint_log_device_int(device, DEVICE_ARGS(NATIVE_VECTOR_WIDTH_LONG), CL_FALSE);
-  clint_log_device_int(device, DEVICE_ARGS(NATIVE_VECTOR_WIDTH_FLOAT), CL_FALSE);
-  clint_log_device_int(device, DEVICE_ARGS(NATIVE_VECTOR_WIDTH_DOUBLE), CL_FALSE);
-  clint_log_device_int(device, DEVICE_ARGS(NATIVE_VECTOR_WIDTH_HALF), CL_FALSE);
-  clint_log_device_int(device, DEVICE_ARGS(LINKER_AVAILABLE), CL_FALSE);
-  clint_log_device_string(device, DEVICE_ARGS(BUILT_IN_KERNELS));
-  clint_log_device_int(device, DEVICE_ARGS(IMAGE_MAX_BUFFER_SIZE), CL_FALSE);
-  clint_log_device_int(device, DEVICE_ARGS(IMAGE_MAX_ARRAY_SIZE), CL_FALSE);
-  clint_log_device_int(device, DEVICE_ARGS(PARENT_DEVICE), CL_TRUE);
-  clint_log_device_int(device, DEVICE_ARGS(PARTITION_MAX_SUB_DEVICES), CL_FALSE);
+  clint_log_device_int(device, DEVICE_ARGS(VENDOR_ID), sizeof(cl_uint), CL_TRUE);
+  clint_log_device_int(device, DEVICE_ARGS(MAX_COMPUTE_UNITS), sizeof(cl_uint), CL_FALSE);
+  clint_log_device_int(device, DEVICE_ARGS(MAX_WORK_ITEM_DIMENSIONS), sizeof(cl_uint), CL_FALSE);
+  clint_log_device_int(device, DEVICE_ARGS(MAX_WORK_GROUP_SIZE), sizeof(size_t), CL_FALSE);
+  clint_log_device_int(device, DEVICE_ARGS(PREFERRED_VECTOR_WIDTH_CHAR), sizeof(cl_uint), CL_FALSE);
+  clint_log_device_int(device, DEVICE_ARGS(PREFERRED_VECTOR_WIDTH_SHORT), sizeof(cl_uint), CL_FALSE);
+  clint_log_device_int(device, DEVICE_ARGS(PREFERRED_VECTOR_WIDTH_INT), sizeof(cl_uint), CL_FALSE);
+  clint_log_device_int(device, DEVICE_ARGS(PREFERRED_VECTOR_WIDTH_LONG), sizeof(cl_uint), CL_FALSE);
+  clint_log_device_int(device, DEVICE_ARGS(PREFERRED_VECTOR_WIDTH_FLOAT), sizeof(cl_uint), CL_FALSE);
+  clint_log_device_int(device, DEVICE_ARGS(PREFERRED_VECTOR_WIDTH_DOUBLE), sizeof(cl_uint), CL_FALSE);
+  clint_log_device_int(device, DEVICE_ARGS(MAX_CLOCK_FREQUENCY), sizeof(cl_uint), CL_FALSE);
+  clint_log_device_int(device, DEVICE_ARGS(ADDRESS_BITS), sizeof(cl_uint), CL_FALSE);
+  clint_log_device_int(device, DEVICE_ARGS(MAX_MEM_ALLOC_SIZE), sizeof(cl_ulong), CL_FALSE);
+  clint_log_device_int(device, DEVICE_ARGS(IMAGE_SUPPORT), sizeof(cl_bool), CL_FALSE);
+  clint_log_device_int(device, DEVICE_ARGS(MAX_READ_IMAGE_ARGS), sizeof(cl_uint), CL_FALSE);
+  clint_log_device_int(device, DEVICE_ARGS(MAX_WRITE_IMAGE_ARGS), sizeof(cl_uint), CL_FALSE);
+  clint_log_device_int(device, DEVICE_ARGS(IMAGE2D_MAX_WIDTH), sizeof(size_t), CL_FALSE);
+  clint_log_device_int(device, DEVICE_ARGS(IMAGE2D_MAX_HEIGHT), sizeof(size_t), CL_FALSE);
+  clint_log_device_int(device, DEVICE_ARGS(IMAGE3D_MAX_WIDTH), sizeof(size_t), CL_FALSE);
+  clint_log_device_int(device, DEVICE_ARGS(IMAGE3D_MAX_HEIGHT), sizeof(size_t), CL_FALSE);
+  clint_log_device_int(device, DEVICE_ARGS(IMAGE3D_MAX_DEPTH), sizeof(size_t), CL_FALSE);
+  clint_log_device_int(device, DEVICE_ARGS(MAX_SAMPLERS), sizeof(cl_uint), CL_FALSE);
+  clint_log_device_int(device, DEVICE_ARGS(MAX_PARAMETER_SIZE), sizeof(size_t), CL_FALSE);
+  clint_log_device_int(device, DEVICE_ARGS(MEM_BASE_ADDR_ALIGN), sizeof(cl_uint), CL_FALSE);
+  clint_log_device_int(device, DEVICE_ARGS(MIN_DATA_TYPE_ALIGN_SIZE), sizeof(cl_uint), CL_FALSE);
+  clint_log_device_int(device, DEVICE_ARGS(GLOBAL_MEM_CACHELINE_SIZE), sizeof(cl_uint), CL_FALSE);
+  clint_log_device_int(device, DEVICE_ARGS(GLOBAL_MEM_CACHE_SIZE), sizeof(cl_ulong), CL_FALSE);
+  clint_log_device_int(device, DEVICE_ARGS(GLOBAL_MEM_SIZE), sizeof(cl_ulong), CL_FALSE);
+  clint_log_device_int(device, DEVICE_ARGS(MAX_CONSTANT_BUFFER_SIZE), sizeof(cl_ulong), CL_FALSE);
+  clint_log_device_int(device, DEVICE_ARGS(MAX_CONSTANT_ARGS), sizeof(cl_uint), CL_FALSE);
+  clint_log_device_int(device, DEVICE_ARGS(LOCAL_MEM_SIZE), sizeof(cl_ulong), CL_FALSE);
+  clint_log_device_int(device, DEVICE_ARGS(ERROR_CORRECTION_SUPPORT), sizeof(cl_bool), CL_FALSE);
+  clint_log_device_int(device, DEVICE_ARGS(PROFILING_TIMER_RESOLUTION), sizeof(size_t), CL_FALSE);
+  clint_log_device_int(device, DEVICE_ARGS(ENDIAN_LITTLE), sizeof(cl_bool), CL_FALSE);
+  clint_log_device_int(device, DEVICE_ARGS(AVAILABLE), sizeof(cl_bool), CL_FALSE);
+  clint_log_device_int(device, DEVICE_ARGS(COMPILER_AVAILABLE), sizeof(cl_bool), CL_FALSE);
+  clint_log_device_int(device, DEVICE_ARGS(PREFERRED_VECTOR_WIDTH_HALF), sizeof(cl_uint), CL_FALSE);
+  clint_log_device_int(device, DEVICE_ARGS(HOST_UNIFIED_MEMORY), sizeof(cl_bool), CL_FALSE);
+  clint_log_device_int(device, DEVICE_ARGS(NATIVE_VECTOR_WIDTH_CHAR), sizeof(cl_uint), CL_FALSE);
+  clint_log_device_int(device, DEVICE_ARGS(NATIVE_VECTOR_WIDTH_SHORT), sizeof(cl_uint), CL_FALSE);
+  clint_log_device_int(device, DEVICE_ARGS(NATIVE_VECTOR_WIDTH_INT), sizeof(cl_uint), CL_FALSE);
+  clint_log_device_int(device, DEVICE_ARGS(NATIVE_VECTOR_WIDTH_LONG), sizeof(cl_uint), CL_FALSE);
+  clint_log_device_int(device, DEVICE_ARGS(NATIVE_VECTOR_WIDTH_FLOAT), sizeof(cl_uint), CL_FALSE);
+  clint_log_device_int(device, DEVICE_ARGS(NATIVE_VECTOR_WIDTH_DOUBLE), sizeof(cl_uint), CL_FALSE);
+  clint_log_device_int(device, DEVICE_ARGS(NATIVE_VECTOR_WIDTH_HALF), sizeof(cl_uint), CL_FALSE);
+  clint_log_device_int(device, DEVICE_ARGS(LINKER_AVAILABLE), sizeof(cl_bool), CL_FALSE);
+  /* AMD CPU driver can crash from this call. */
+  if (major >= 2 || (major == 1 && minor >= 2))
+    clint_log_device_string(device, DEVICE_ARGS(BUILT_IN_KERNELS));
+  else
+    clint_log("\tdevice[%p]: %s: %s\n",
+              device, "CL_BUILT_IN_KERNELS", clint_string_error(CL_INVALID_VALUE));
+  clint_log_device_int(device, DEVICE_ARGS(IMAGE_MAX_BUFFER_SIZE), sizeof(size_t), CL_FALSE);
+  clint_log_device_int(device, DEVICE_ARGS(IMAGE_MAX_ARRAY_SIZE), sizeof(size_t), CL_FALSE);
+  clint_log_device_int(device, DEVICE_ARGS(PARENT_DEVICE), sizeof(cl_device_id), CL_TRUE);
+  clint_log_device_int(device, DEVICE_ARGS(PARTITION_MAX_SUB_DEVICES), sizeof(cl_uint), CL_FALSE);
   clint_log_device_partition(device, DEVICE_ARGS(PARTITION_PROPERTIES));
-  if (clint_get_device_int(device, DEVICE_ARGS(PARTITION_AFFINITY_DOMAIN), &value_int)) {
+  if (clint_get_device_int(device, DEVICE_ARGS(PARTITION_AFFINITY_DOMAIN),
+                           ARG_WITH_SIZE(affinity_domain))) {
     clint_log_device_raw(device, DEVICE_ARGS(PARTITION_AFFINITY_DOMAIN),
-                         clint_string_device_affinity_domain((cl_device_affinity_domain)value_int));
+                         clint_string_device_affinity_domain(affinity_domain));
   }
   clint_log_device_partition(device, DEVICE_ARGS(PARTITION_TYPE));
-  clint_log_device_int(device, DEVICE_ARGS(REFERENCE_COUNT), CL_FALSE);
-  clint_log_device_int(device, DEVICE_ARGS(PREFERRED_INTEROP_USER_SYNC), CL_FALSE);
-  clint_log_device_int(device, DEVICE_ARGS(PRINTF_BUFFER_SIZE), CL_FALSE);
+  clint_log_device_int(device, DEVICE_ARGS(REFERENCE_COUNT), sizeof(cl_uint), CL_FALSE);
+  clint_log_device_int(device, DEVICE_ARGS(PREFERRED_INTEROP_USER_SYNC), sizeof(cl_bool), CL_FALSE);
+  clint_log_device_int(device, DEVICE_ARGS(PRINTF_BUFFER_SIZE), sizeof(size_t), CL_FALSE);
 
   clint_log_device_formats(platform, device);
 }

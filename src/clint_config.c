@@ -36,7 +36,9 @@
 #include <ctype.h>
 
 #ifndef HAVE_GETENV
-#define HAVE_GETENV (!defined(WIN32))
+#if !defined(WIN32)
+#define HAVE_GETENV 1
+#endif
 #endif
 
 #if defined(WIN32)
@@ -163,14 +165,14 @@ void clint_config_init(const ClintPathChar *path)
   if (path) {
     FILE *fp;
 #if defined(WIN32)
-    if (_tfopen(&fp, path, _T("r")) != 0) {
+    if (_tfopen_s(&fp, path, _T("r")) != 0) {
       fp = NULL;
     }
 #else
     fp = fopen(path, "r");
 #endif
     if (fp != NULL) {
-      while (fgets(buf, bufsize, fp) != NULL) {
+      while (fgets(buf, (int)bufsize, fp) != NULL) {
         if (
 #if defined(WIN32)
             sscanf_s(buf, " %s ", key, bufsize) == 1

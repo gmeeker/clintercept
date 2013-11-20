@@ -68,7 +68,7 @@ typedef struct ClintObject_##type {                                 \
   cl_context context;                                               \
   ClintAtomicInt refCount;                                          \
   ClintAtomicInt threadCount;                                       \
-  ELEMS;                                                            \
+  ELEMS                                                             \
 } ClintObject_##type;                                               \
                                                                     \
 ClintObject_##type *clint_lookup_##type(cl_##type v);               \
