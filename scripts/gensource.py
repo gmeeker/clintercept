@@ -287,10 +287,11 @@ def gen_check_output_arg(arg, args, funcName, pointers_only=1):
     if gen_format_struct_name(arg[0]) == 'cl_context':
         check_args = ('NULL', 'ClintObjectType_none')
     if gen_format_struct_name(arg[0]) == 'cl_device_id':
-        # Only track subdevices.
-        if funcName != 'clCreateSubDevices':
-            return None
-        check_args = ('NULL', 'ClintObjectType_none')
+        subdevice = 'CL_FALSE'
+        if funcName == 'clCreateSubDevices':
+            # Only subdevices have reference counts.
+            return 'CL_TRUE'
+        check_args = ('NULL', 'ClintObjectType_none', subdevice)
     if gen_format_struct_name(arg[0]) == 'cl_command_queue' and funcName == 'clCreateContextAndCommandQueueAPPLE':
         check_args = ('*'+args[-2][1], 'ClintObjectType_context')
     if gen_format_struct_name(arg[0]) == 'cl_mem':

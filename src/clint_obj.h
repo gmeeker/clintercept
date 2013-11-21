@@ -104,7 +104,14 @@ CLINT_DEFINE_OBJ_FUNCS(program);
 CLINT_DEFINE_OBJ_FUNCS(kernel);
 CLINT_DEFINE_OBJ_FUNCS(event);
 CLINT_DEFINE_OBJ_FUNCS(sampler);
+#undef ARGS
+#undef ELEMS
+#define ARGS , cl_bool subdevice
+#define ELEMS                                                       \
+  cl_bool subdevice;
 CLINT_DEFINE_OBJ_FUNCS(device_id);
+#undef ARGS
+#undef ELEMS
 
 void clint_set_image_format(cl_mem v, const cl_image_format *image_format);
 void *clint_retain_map(cl_mem v, cl_map_flags map_flags, void *ptr, size_t size);

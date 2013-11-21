@@ -88,6 +88,16 @@ void clint_check_output_##type(cl_##type v, void *src, ClintObjType t ARGS) \
       (ClintObject_##type*)malloc(sizeof(ClintObject_##type));      \
     memset(obj, 0, sizeof(ClintObject_##type));                     \
     COPYARGS;                                                       \
+    if (!VALID_DYN_OBJ(obj)) {                                      \
+      ClintObject_##type *obj2 = NULL;                              \
+      CLINT_SPINLOCK_LOCK(g_clint_lock_##type);                     \
+      obj2 = clint_tree_find_ClintObject_##type(g_clint_objects_##type, v); \
+      CLINT_SPINLOCK_UNLOCK(g_clint_lock_##type);                   \
+      if (obj2 != NULL) {                                           \
+        free(obj);                                                  \
+        return;                                                     \
+      }                                                             \
+    }                                                               \
     switch (t) {                                                    \
     case ClintObjectType_context:                                   \
       obj->context = (cl_context)src;                               \
@@ -153,7 +163,7 @@ void clint_check_output_##type##s(cl_uint num, cl_##type *v, void *src, ClintObj
 void clint_retain_##type(cl_##type v)                               \
 {                                                                   \
   ClintObject_##type *obj = clint_lookup_##type(v);                 \
-  if (obj != NULL) {                                                \
+  if (VALID_DYN_OBJ(obj)) {                                         \
     CLINT_ATOMIC_ADD(1, obj->refCount);                             \
   }                                                                 \
 }                                                                   \
@@ -161,7 +171,7 @@ void clint_retain_##type(cl_##type v)                               \
 void clint_release_##type(cl_##type v)                              \
 {                                                                   \
   ClintObject_##type *obj = clint_lookup_##type(v);                 \
-  if (obj != NULL) {                                                \
+  if (VALID_DYN_OBJ(obj)) {                                         \
     ClintAtomicInt count = CLINT_ATOMIC_SUB(1, obj->refCount);      \
     if (count == 0 &&                                               \
         !clint_get_config(CLINT_ZOMBIES)) {                         \
@@ -178,13 +188,15 @@ void clint_release_##type(cl_##type v)                              \
                                                                     \
 static void clint_log_leaks_##type(ClintObject_##type *tree, cl_context context) \
 {                                                                   \
-  ClintObject_##type *iter = clint_tree_first_ClintObject_##type(tree); \
-  while (iter) {                                                    \
-    if (context == NULL || context == iter->context) {              \
+  ClintObject_##type *iter;                                         \
+  for (iter = clint_tree_first_ClintObject_##type(tree);            \
+       iter;                                                        \
+       iter = clint_tree_next_ClintObject_##type(iter)) {           \
+    if (VALID_DYN_OBJ(iter) &&                                      \
+        (context == NULL || context == iter->context)) {            \
       clint_log("Possibly leaked cl_" #type ": %p\n", iter->_key);  \
       if (iter->stack != NULL)                                      \
         clint_log("Created at:\n%s\n", iter->stack);                \
-      iter = clint_tree_next_ClintObject_##type(iter);              \
     }                                                               \
   }                                                                 \
 }                                                                   \
@@ -192,6 +204,7 @@ static void clint_log_leaks_##type(ClintObject_##type *tree, cl_context context)
 #define ARGS
 #define ARGNAMES
 #define COPYARGS
+#define VALID_DYN_OBJ(O) ((O) != NULL)
 CLINT_IMPL_OBJ_FUNCS(context);
 CLINT_IMPL_OBJ_FUNCS(command_queue);
 #undef ARGS
@@ -211,7 +224,19 @@ CLINT_IMPL_OBJ_FUNCS(program);
 CLINT_IMPL_OBJ_FUNCS(kernel);
 CLINT_IMPL_OBJ_FUNCS(event);
 CLINT_IMPL_OBJ_FUNCS(sampler);
+#undef ARGS
+#undef ARGNAMES
+#undef COPYARGS
+#undef VALID_DYN_OBJ
+#define ARGS , cl_bool subdevice
+#define ARGNAMES , subdevice
+#define COPYARGS obj->subdevice = subdevice
+#define VALID_DYN_OBJ(O) ((O) != NULL && (O)->subdevice)
 CLINT_IMPL_OBJ_FUNCS(device_id);
+#undef ARGS
+#undef ARGNAMES
+#undef COPYARGS
+#undef VALID_DYN_OBJ
 
 static size_t clint_sizeof_channel_type(cl_channel_type data_type)
 {
@@ -235,6 +260,10 @@ static size_t clint_sizeof_channel_type(cl_channel_type data_type)
     return 4;
 #ifdef CL_SFIXED14_APPLE
   case CL_SFIXED14_APPLE:
+    return 2;
+#endif
+#ifdef CL_BIASED_HALF_APPLE
+  case CL_BIASED_HALF_APPLE:
     return 2;
 #endif
   default:
@@ -274,6 +303,10 @@ static size_t clint_sizeof_image_format(const cl_image_format *image_format)
   case CL_ARGB:
   case CL_BGRA:
     return 4 * clint_sizeof_channel_type(image_format->image_channel_data_type);
+#ifdef CL_ABGR_APPLE
+  case CL_ABGR_APPLE:
+    return 4 * clint_sizeof_channel_type(image_format->image_channel_data_type);
+#endif
 #ifdef CL_1RGB_APPLE
   case CL_1RGB_APPLE:
     return 3 * clint_sizeof_channel_type(image_format->image_channel_data_type);
