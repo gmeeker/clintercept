@@ -125,23 +125,35 @@ static int clint_config_parse_flag(const char *s)
   return 1;
 }
 
-static int clint_config_parse_string(char *output, const char *input)
+static int clint_config_parse_string(char *output, const char *input, int path)
 {
+  (void)path;
   if (input == NULL || *input == 0)
     return 0;
   while (isspace(*input))
     input++;
-  if (*input++ != '"')
-    return 0;
-  while (*input != '"') {
-    if (*input == 0)
-      return 0;
-    if (*input == '\\')
-      input++;
-    if (*input == 0)
-      return 0;
-    *output++ = *input++;
+  if (*input == '"') {
+    input++;
+    while (*input != '"') {
+      if (*input == 0)
+        return 0;
+#if defined(WIN32)
+      if (*input == '\\' && !path)
+        input++;
+#else
+      if (*input == '\\')
+        input++;
+#endif
+      if (*input == 0)
+        return 0;
+      *output++ = *input++;
+    }
+  } else {
+    while (!isspace(*input)) {
+      *output++ = *input++;
+    }
   }
+  *output++ = 0;
   return 1;
 }
 
@@ -190,7 +202,7 @@ void clint_config_init(const ClintPathChar *path)
                 case CLINT_CONFIG_FILE:
                   break;
                 case CLINT_LOG_FILE:
-                  if (clint_config_parse_string(logfile, s)) {
+                  if (clint_config_parse_string(logfile, s, 1)) {
                     logfile_ptr = logfile;
                   }
                   break;
@@ -199,7 +211,7 @@ void clint_config_init(const ClintPathChar *path)
                 case CLINT_FORCE_DEVICE:
                   clint_set_config(i, 1);
                   strbuf = malloc(strlen(s)+1);
-                  if (clint_config_parse_string(strbuf, s)) {
+                  if (clint_config_parse_string(strbuf, s, 0)) {
                     g_clint_config_strings[i] = strbuf;
                   } else {
                     free(strbuf);
