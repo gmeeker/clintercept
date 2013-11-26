@@ -368,7 +368,7 @@ void *clint_retain_map(cl_mem v, cl_map_flags map_flags, void *ptr, size_t size)
           if (obj->mapCopy.addr == NULL) {
             return ptr;
           }
-          if ((obj->mapFlags & CL_MAP_WRITE_INVALIDATE_REGION) != 0) {
+          if ((obj->mapFlags & CL_MAP_WRITE_INVALIDATE_REGION) == 0) {
             memcpy(obj->mapCopy.addr, obj->mapPtr, obj->mapSize);
           }
         } else {
@@ -383,7 +383,7 @@ void *clint_retain_map(cl_mem v, cl_map_flags map_flags, void *ptr, size_t size)
                               flags | ClintMemProtection_Read | ClintMemProtection_Write)) {
             return ptr;
           }
-          if ((obj->mapFlags & CL_MAP_WRITE_INVALIDATE_REGION) != 0) {
+          if ((obj->mapFlags & CL_MAP_WRITE_INVALIDATE_REGION) == 0) {
             memcpy(obj->mapCopy.addr, obj->mapPtr, obj->mapSize);
           }
           if ((obj->mapFlags & CL_MAP_READ) != 0) {
