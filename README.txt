@@ -2,7 +2,6 @@ To build the library:
 
 git clone git://git.code.sf.net/p/clintercept/code clintercept
 cd clintercept
-git clone git://gitorious.org/findopencl/findopencl FindOpenCL
 mkdir xcode
 cd xcode
 cmake -G Xcode ..

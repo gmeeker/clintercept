@@ -2,7 +2,7 @@
 cmake_minimum_required (VERSION 2.8)
 project (CLIntercept)
 
-set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/FindOpenCL/")
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/")
 find_package(OpenCL REQUIRED)
 find_package(Threads REQUIRED)
 
