@@ -5,13 +5,19 @@ import re
 import string
 import sys
 
-pat_func = re.compile(r'(extern\s+CL_API_ENTRY\s+(?:CL_[A-Z]*_PREFIX__VERSION[_0-9]*_DEPRECATED\s*)?[^;]*\s+CL_[A-Z]*_SUFFIX__VERSION[_0-9]*(?:_DEPRECATED)?\s*;)')
+pat_func = re.compile(
+    r'(extern\s+CL_API_ENTRY\s+(?:CL_[A-Z]*_PREFIX__VERSION[_0-9]*_DEPRECATED\s*)?[^;]*\s+CL_[A-Z]*'
+    r'_SUFFIX__VERSION[_0-9]*(?:_DEPRECATED)?\s*;)')
 pat_extern = re.compile(r'extern\s+')
 pat_name = re.compile(r'CL_API_CALL\s+(\w+)')
 pat_func_before_args = re.compile(r'^.*CL_API_CALL\s+\w+\(')
-pat_args = re.compile(r'(([a-zA-Z0-9_* ]+)\s+(\w+)\s*[,)])|((\w+(\s*[*])?\s*\(\s*(CL_CALLBACK)?\s*[*]\s*\w+\s*\)\s*\([^)]*\))\s*[,)])')
+
+pat_args = re.compile(r'(([a-zA-Z0-9_* ]+(?:\s*\[\])?)\s+(\w+)\s*[,)])|((\w+(\s*[*])?\s*\(\s*(CL_CALLBACK)?'
+                      r'\s*[*]\s*\w+\s*\)\s*\([^)]*\))\s*[,)])')
+
 pat_func_ptr = re.compile(r'((CL_CALLBACK)?\s*[*])\s*(\w+)')
-pat_return = re.compile(r'CL_API_ENTRY\s+(?:CL_[A-Z]*_PREFIX__VERSION[_0-9]*_DEPRECATED\s*)?(\w+(\s*[*])?)\s+CL_API_CALL')
+pat_return = re.compile(
+    r'CL_API_ENTRY\s+(?:CL_[A-Z]*_PREFIX__VERSION[_0-9]*_DEPRECATED\s*)?(\w+(\s*[*])?)\s+CL_API_CALL')
 pat_suffix = re.compile(r'\s+CL_[A-Z]*_SUFFIX__VERSION[_0-9A-Z]*')
 pat_comment = re.compile(r'/[*]\s*(\w*).*?[*]/')
 pat_c_cpp_comment = re.compile(r'\s*(/[*].*[*]/)|(//.*\n?)')
@@ -21,55 +27,69 @@ pat_err = re.compile(r'#define\s+(CL_[A-Za-z0-9_]+)\s+(-?[0-9]+)')
 pat_define = re.compile(r'#define\s+(CL_[A-Za-z0-9_]+)\s+((0x[0-9A-Fa-f]+)|(-?[0-9]+))')
 pat_bitfield = re.compile(r'#define\s+(CL_[A-Za-z0-9_]+)\s+(\([0-9]+\s*<<\s*[0-9]+\))')
 pat_struct = re.compile(r'}\s*(cl_[a-z0-9_]+)\s*;')
+pat_void = re.compile(r'^(?:void\s*[\]\[* ]*)$')
+
 
 def pointer_name(name):
     return 'clint_' + name + '_ptr'
 
+
 def typedef_name(name):
     return 'CLINT_' + name.upper() + '_FN'
+
 
 def remove_prefix(s, sub):
     if s[:len(sub)] == sub:
         return s[len(sub):]
     return s
 
+
 def has_prefix(s, sub):
     return s[:len(sub)] == sub
+
 
 def gen_top(out):
     out.write('/* AUTOMATICALLY GENERATED: DO NO EDIT */\n')
     out.write('#include "clint_data.h"\n')
     out.write('#include "clint_log.h"\n')
 
+
 def gen_prefix(out):
     out.write('#ifdef __cplusplus\n')
     out.write('extern "C" {\n')
     out.write('#endif\n')
+
 
 def gen_postfix(out):
     out.write('#ifdef __cplusplus\n')
     out.write('}\n')
     out.write('#endif\n')
 
+
 def gen_pointers(out, f):
     proto, name, r, args, core = f
     if core:
         out.write('static %s %s = NULL;\n' % (typedef_name(name), pointer_name(name)))
+
 
 def gen_define_pointers(out, f):
     proto, name, r, args, core = f
     if core:
         out.write('#define %s %s\n' % (pointer_name(name), name))
 
+
 def gen_interpose(out, f):
     proto, name, r, args, core = f
     if core:
         out.write('\t{ clint_%s, %s },\n' % (name, name))
 
+
 def gen_lookup(out, f):
     proto, name, r, args, core = f
     if core:
-        out.write('\t\t\t%s = (%s)clint_opencl_sym(clint_dll, "%s");\n' % (pointer_name(name), typedef_name(name), name))
+        out.write(
+            '\t\t\t%s = (%s)clint_opencl_sym(clint_dll, "%s");\n' % (pointer_name(name), typedef_name(name), name))
+
 
 def gen_typedef(out, f):
     proto, name, r, args, core = f
@@ -78,8 +98,10 @@ def gen_typedef(out, f):
     proto = pat_name.sub('(CL_API_CALL *%s)' % typedef_name(name), proto)
     out.write('typedef %s\n' % proto)
 
+
 def gen_type_name(t):
     return remove_prefix(t, 'cl_')
+
 
 def gen_type_arg(t):
     if t == 'error':
@@ -91,8 +113,10 @@ def gen_type_arg(t):
     else:
         return t
 
+
 def is_type_const(t):
     return has_prefix(t, 'const ')
+
 
 gen_format_str_map = {
     'int': '%d',
@@ -111,48 +135,51 @@ gen_format_str_map = {
     'cl_kernel': '%p',
     'cl_event': '%p',
     'cl_sampler': '%p',
-#    'cl_platform_info': '%p',
+    #    'cl_platform_info': '%p',
     'cl_float': '%f',
     'cl_bool': '%u',
     'cl_bitfield': '%lu',
-#    'cl_device_type': '%lu',
-#    'cl_platform_info': '%u',
-#    'cl_device_info': '%u',
-#    'cl_device_fp_config': '%lu',
-#    'cl_device_mem_cache_type': '%u',
-#    'cl_device_local_mem_type': '%u',
-#    'cl_device_exec_capabilities': '%lu',
-#    'cl_command_queue_properties': '%lu',
-#    'cl_context_properties': '%p',
-#    'cl_context_info': '%u',
-#    'cl_command_queue_info': '%u',
-#    'cl_channel_order': '%u',
-#    'cl_channel_type': '%u',
-#    'cl_mem_flags': '%lu',
-#    'cl_mem_object_type': '%u',
-#    'cl_mem_info': '%u',
-#    'cl_image_info': '%u',
-#    'cl_buffer_create_type': '%u',
-#    'cl_addressing_mode': '%u',
-#    'cl_filter_mode': '%u',
-#    'cl_sampler_info': '%u',
-#    'cl_map_flags': '%lu',
-#    'cl_program_info': '%u',
-#    'cl_program_build_info': '%u',
-#    'cl_build_status': '%d',
-#    'cl_kernel_info': '%u',
-#    'cl_kernel_work_group_info': '%u',
-#    'cl_event_info': '%u',
-#    'cl_command_type': '%u',
-#    'cl_profiling_info': '%u',
+    #    'cl_device_type': '%lu',
+    #    'cl_platform_info': '%u',
+    #    'cl_device_info': '%u',
+    #    'cl_device_fp_config': '%lu',
+    #    'cl_device_mem_cache_type': '%u',
+    #    'cl_device_local_mem_type': '%u',
+    #    'cl_device_exec_capabilities': '%lu',
+    #    'cl_command_queue_properties': '%lu',
+    #    'cl_context_properties': '%p',
+    #    'cl_context_info': '%u',
+    #    'cl_command_queue_info': '%u',
+    #    'cl_channel_order': '%u',
+    #    'cl_channel_type': '%u',
+    #    'cl_mem_flags': '%lu',
+    #    'cl_mem_object_type': '%u',
+    #    'cl_mem_info': '%u',
+    #    'cl_image_info': '%u',
+    #    'cl_buffer_create_type': '%u',
+    #    'cl_addressing_mode': '%u',
+    #    'cl_filter_mode': '%u',
+    #    'cl_sampler_info': '%u',
+    #    'cl_map_flags': '%lu',
+    #    'cl_program_info': '%u',
+    #    'cl_program_build_info': '%u',
+    #    'cl_build_status': '%d',
+    #    'cl_kernel_info': '%u',
+    #    'cl_kernel_work_group_info': '%u',
+    #    'cl_event_info': '%u',
+    #    'cl_command_type': '%u',
+    #    'cl_profiling_info': '%u',
     'cl_GLuint': '%u',
     'cl_GLint': '%d',
     'cl_GLenum': '%u',
     'cl_gl_object_type': '%u',
-#    'cl_gl_texture_info': '%u',
-#    'cl_gl_platform_info': '%u',
+    #    'cl_gl_texture_info': '%u',
+    #    'cl_gl_platform_info': '%u',
     'cl_GLsync': '%p',
     'va_list': '%p',
+    # Types for OpenCL 2.0.5
+    'cl_svm_mem_flags': '%lu',
+    'cl_kernel_sub_group_info': '%u',
 }
 
 gen_format_struct_map = {
@@ -172,21 +199,22 @@ gen_format_struct_map = {
                          ('size_t', 'size'))
 }
 
+
 def append_type_map(typeMap, key, value):
     if key == 'cl_bool':
         return
     if key in typeMap:
         if not value[0] in map(lambda x: x[0], typeMap[key]):
-            if key == 'token':
-                # Avoid duplicates
-                if value[1] in map(lambda x: x[1], typeMap[key]):
-                    if string.split(value[0], '_')[0] in ('AMD','KHR','NV'):
-                        return
-                    else:
-                        typeMap[key] = filter(lambda x,v=value[1]: x[1] != v, typeMap[key])
+            # Avoid duplicates
+            if value[1] in map(lambda x: x[1], typeMap[key]):
+                if string.split(value[0], '_')[0] in ('AMD', 'KHR', 'NV'):
+                    return
+                else:
+                    typeMap[key] = filter(lambda x, v=value[1]: x[1] != v, typeMap[key])
             typeMap[key].append(value)
     else:
         typeMap[key] = [value]
+
 
 def fix_type_name(type_name):
     if has_prefix(type_name, 'cl_d3d'):
@@ -201,6 +229,7 @@ def fix_type_name(type_name):
         return "cl_kernel_arg_type_qualifier"
     return type_name
 
+
 def gen_format_struct_name(name):
     name = string.strip(name)
     if name[-1] == '*':
@@ -209,11 +238,13 @@ def gen_format_struct_name(name):
     name = string.strip(name)
     return name
 
+
 def gen_format_str(t, typeMap, funcName, inout):
     t = string.strip(t)
     if t == 'cl_int' and funcName == 'clSetUserEventStatus':
         t = 'execution_status'
-    if (gen_format_struct_name(t) in gen_format_struct_map) and (inout != 0 or is_type_const(t)) and (inout != 1 or not is_type_const(t)):
+    if (gen_format_struct_name(t) in gen_format_struct_map) and (inout != 0 or is_type_const(t)) and (
+            inout != 1 or not is_type_const(t)):
         return '%s'
     if t in typeMap:
         return '%s'
@@ -225,11 +256,13 @@ def gen_format_str(t, typeMap, funcName, inout):
         return '%p'
     return gen_format_str_map[t]
 
+
 def gen_format_arg(t, name, typeMap, funcName, inout):
     t = string.strip(t)
     if t == 'cl_int' and funcName == 'clSetUserEventStatus':
         t = 'execution_status'
-    if (gen_format_struct_name(t) in gen_format_struct_map) and (inout != 0 or is_type_const(t)) and (inout != 1 or not is_type_const(t)):
+    if (gen_format_struct_name(t) in gen_format_struct_map) and (inout != 0 or is_type_const(t)) and (
+            inout != 1 or not is_type_const(t)):
         return 'clint_string_%s(%s)' % (gen_type_name(gen_format_struct_name(t)), name)
     if inout == 1 and '*' in t and (not '(' in t) and gen_format_struct_name(t) != 'void':
         return '(%s ? *%s : 0)' % (name, name)
@@ -238,6 +271,7 @@ def gen_format_arg(t, name, typeMap, funcName, inout):
     if not t in typeMap:
         return name
     return 'clint_string_%s(%s)' % (gen_type_name(t), name)
+
 
 def gen_mem_sharing(funcName):
     if 'GL' in funcName:
@@ -252,7 +286,10 @@ def gen_mem_sharing(funcName):
         sharing = 'ClintObjectSharing_none'
     return sharing
 
-gen_objects_list = string.split('cl_context cl_command_queue cl_mem cl_program cl_kernel cl_event cl_sampler cl_device_id')
+
+gen_objects_list = string.split(
+    'cl_context cl_command_queue cl_mem cl_program cl_kernel cl_event cl_sampler cl_device_id')
+
 
 def gen_check_input_arg(arg, args, funcName):
     if '*' in arg[0] and gen_format_struct_name(arg[0]) in gen_objects_list:
@@ -260,8 +297,8 @@ def gen_check_input_arg(arg, args, funcName):
             return None
         type_name = gen_type_name(gen_format_struct_name(arg[0]))
         i = args.index(arg)
-        if i > 0 and args[i-1][0] in ('cl_uint', 'size_t') and has_prefix(args[i-1][1], 'num_'):
-            return 'clint_check_input_%s(%s, %s)' % (type_name+'s', args[i-1][1], arg[1])
+        if i > 0 and args[i - 1][0] in ('cl_uint', 'size_t') and has_prefix(args[i - 1][1], 'num_'):
+            return 'clint_check_input_%s(%s, %s)' % (type_name + 's', args[i - 1][1], arg[1])
     if not arg[0] in gen_objects_list:
         return None
     if has_prefix(funcName, 'clRetain'):
@@ -272,6 +309,7 @@ def gen_check_input_arg(arg, args, funcName):
         # Only clRetainDevice and clReleaseDevice require a subdevice.
         return None
     return 'clint_check_input_%s(%s)' % (gen_type_name(arg[0]), arg[1])
+
 
 def gen_check_output_arg(arg, args, funcName, pointers_only=1):
     check_args = ()
@@ -293,7 +331,7 @@ def gen_check_output_arg(arg, args, funcName, pointers_only=1):
             return 'CL_TRUE'
         check_args = ('NULL', 'ClintObjectType_none', subdevice)
     if gen_format_struct_name(arg[0]) == 'cl_command_queue' and funcName == 'clCreateContextAndCommandQueueAPPLE':
-        check_args = ('*'+args[-2][1], 'ClintObjectType_context')
+        check_args = ('*' + args[-2][1], 'ClintObjectType_context')
     if gen_format_struct_name(arg[0]) == 'cl_mem':
         if has_prefix(funcName, 'clCreateFrom'):
             sharing = gen_mem_sharing(funcName)
@@ -312,32 +350,40 @@ def gen_check_output_arg(arg, args, funcName, pointers_only=1):
             return None
         type_name = gen_type_name(gen_format_struct_name(arg[0]))
         i = args.index(arg)
-        if i > 0 and args[i-1][0] in ('cl_uint', 'size_t') and has_prefix(args[i-1][1], 'num_'):
-            return 'clint_check_output_%s(%s)' % (type_name+'s', string.join((args[i-1][1], arg[1]) + tuple(check_args), ", "))
-        return 'if (%s)\n\t\tclint_check_output_%s(%s)' % (arg[1], type_name, string.join(('*'+arg[1],) + tuple(check_args), ", "))
+        if i > 0 and args[i - 1][0] in ('cl_uint', 'size_t') and has_prefix(args[i - 1][1], 'num_'):
+            return 'clint_check_output_%s(%s)' % (
+            type_name + 's', string.join((args[i - 1][1], arg[1]) + tuple(check_args), ", "))
+        return 'if (%s)\n\t\tclint_check_output_%s(%s)' % (
+        arg[1], type_name, string.join(('*' + arg[1],) + tuple(check_args), ", "))
     if pointers_only:
         return None
     if not arg[0] in gen_objects_list:
         return None
     return 'clint_check_output_%s(%s)' % (gen_type_name(arg[0]), string.join((arg[1],) + tuple(check_args), ", "))
 
+
 profile_funcs = ('clEnqueueNDRangeKernel', 'clEnqueueTask', 'clEnqueueNativeKernel')
+
 
 def is_profile_all(name, args):
     return has_prefix(name, 'clEnqueue') and filter(lambda a: a[0] == 'cl_event *', args)
+
 
 def gen_func_has_errcode(f):
     proto, name, r, args, core = f
     return (r == 'cl_int' or (args and args[-1][0] in ('cl_int *', 'int *')))
 
+
 def gen_func_errcode(f):
     proto, name, r, args, core = f
-    return ((r == 'cl_int') and 'retval') or '*'+args[-1][1]
+    return ((r == 'cl_int') and 'retval') or '*' + args[-1][1]
+
 
 def gen_custom_func_decl(out, f, typeMap):
     proto, name, r, args, core = f
     if is_profile_all(name, args):
         out.write('\tcl_event profile_event = NULL;\n')
+
 
 def gen_custom_func_begin(out, f, typeMap):
     proto, name, r, args, core = f
@@ -382,7 +428,7 @@ def gen_custom_func_begin(out, f, typeMap):
         arg0 = filter(lambda a: a[0] == 'cl_uint', args)[-1]
         arg1 = filter(lambda a: a[0] == 'const char **', args)[-1]
         arg2 = filter(lambda a: a[0] == 'const size_t *', args)[-1]
-        out.write('\t\t%s = clint_modify_program_sources(%s, %s, %s);\n' % (arg1[1], arg0[1], arg1[1], '&'+arg2[1]))
+        out.write('\t\t%s = clint_modify_program_sources(%s, %s, %s);\n' % (arg1[1], arg0[1], arg1[1], '&' + arg2[1]))
     if name == 'clCreateContextFromType':
         arg = filter(lambda a: a[0] == 'cl_device_type', args)[-1]
         out.write('\t\t%s = clint_modify_device_type(%s);\n' % (arg[1], arg[1]))
@@ -390,10 +436,11 @@ def gen_custom_func_begin(out, f, typeMap):
         arg0 = filter(lambda a: 'cl_context_properties' in a[0], args)[0]
         arg1 = filter(lambda a: 'cl_uint' == a[0], args)[0]
         arg2 = filter(lambda a: 'cl_device_id' in a[0], args)[0]
-        out.write('\t%s = clint_modify_context_devices(%s, %s, %s);\n' % (arg2[1], arg0[1], '&'+arg1[1], arg2[1]))
+        out.write('\t%s = clint_modify_context_devices(%s, %s, %s);\n' % (arg2[1], arg0[1], '&' + arg1[1], arg2[1]))
     if has_prefix(name, 'clEnqueueRelease'):
         sharing = gen_mem_sharing(name)
         out.write('\tclint_release_shared_mems(%s, %s, %s);\n' % (args[1][1], args[2][1], sharing))
+
 
 def gen_custom_func_exit(out, f, typeMap):
     proto, name, r, args, core = f
@@ -412,11 +459,13 @@ def gen_custom_func_exit(out, f, typeMap):
             arg3 = filter(lambda a: 'size_t' in a[0], args)[1]
             arg4 = filter(lambda a: 'size_t' in a[0], args)[2]
             arg5 = filter(lambda a: 'size_t' in a[0], args)[3]
-            out.write('\t%s = clint_retain_map_image(%s, %s, %s, %s, %s, %s);\n' % (arg2[1], arg0[1], arg1[1], arg2[1], arg3[1], arg4[1], arg5[1]))
+            out.write('\t%s = clint_retain_map_image(%s, %s, %s, %s, %s, %s);\n' % (
+            arg2[1], arg0[1], arg1[1], arg2[1], arg3[1], arg4[1], arg5[1]))
         else:
             arg3 = filter(lambda a: a[0] == 'size_t', args)[1]
             out.write('\t%s = clint_retain_map(%s, %s, %s, %s);\n' % (arg2[1], arg0[1], arg1[1], arg2[1], arg3[1]))
-        out.write('\tif (clint_get_config(CLINT_CHECK_MAPPING))\n\t\t%s = CL_TRUE;\n' % filter(lambda a: a[0] == 'cl_bool', args)[-1][1])
+        out.write('\tif (clint_get_config(CLINT_CHECK_MAPPING))\n\t\t%s = CL_TRUE;\n' %
+                  filter(lambda a: a[0] == 'cl_bool', args)[-1][1])
     if name in ('clGetPlatformInfo', 'clGetDeviceInfo'):
         if name == 'clGetPlatformInfo':
             param_name = 'CL_PLATFORM_EXTENSIONS'
@@ -432,13 +481,14 @@ def gen_custom_func_exit(out, f, typeMap):
         profile = 'EMBEDDED_PROFILE'
         out.write('\tif (clint_get_config(CLINT_EMBEDDED) && %s == %s) {\n' % (args[1][1], arg))
         out.write('\t\tif (%s != NULL)\n' % args[4][1])
-        out.write('\t\t\t*%s = %d;\n' % (args[4][1], len(profile)+1))
-        out.write('\t\tif (%s >= %d && %s != NULL)\n' % (args[2][1], len(profile)+1, args[3][1]))
-        out.write('\t\t\tmemcpy(%s, \"%s\", %d);\n' % (args[3][1], profile, len(profile)+1))
+        out.write('\t\t\t*%s = %d;\n' % (args[4][1], len(profile) + 1))
+        out.write('\t\tif (%s >= %d && %s != NULL)\n' % (args[2][1], len(profile) + 1, args[3][1]))
+        out.write('\t\t\tmemcpy(%s, \"%s\", %d);\n' % (args[3][1], profile, len(profile) + 1))
         out.write('\t}\n')
 
         if name == 'clGetDeviceInfo':
-            out.write('\tif (clint_get_config(CLINT_DISABLE_IMAGE) && %s > 0 && %s != NULL) {\n' % (args[2][1], args[3][1]))
+            out.write(
+                '\tif (clint_get_config(CLINT_DISABLE_IMAGE) && %s > 0 && %s != NULL) {\n' % (args[2][1], args[3][1]))
             out.write('\t\tswitch (%s) {\n' % args[1][1])
             out.write('\t\tcase CL_DEVICE_IMAGE_SUPPORT:\n')
             out.write('\t\tcase CL_DEVICE_MAX_READ_IMAGE_ARGS:\n')
@@ -454,7 +504,8 @@ def gen_custom_func_exit(out, f, typeMap):
             out.write('\t\t\tmemset(%s, 0, %s);\n' % (args[3][1], args[2][1]))
             out.write('\t\t\tbreak;\n')
             out.write('\t\t}\n')
-            out.write('\t} else if (clint_get_config(CLINT_EMBEDDED) && %s > 0 && %s != NULL) {\n' % (args[2][1], args[3][1]))
+            out.write(
+                '\t} else if (clint_get_config(CLINT_EMBEDDED) && %s > 0 && %s != NULL) {\n' % (args[2][1], args[3][1]))
             out.write('\t\tswitch (%s) {\n' % args[1][1])
             out.write('\t\tcase CL_DEVICE_IMAGE3D_MAX_WIDTH:\n')
             out.write('\t\tcase CL_DEVICE_IMAGE3D_MAX_HEIGHT:\n')
@@ -473,9 +524,20 @@ def gen_custom_func_exit(out, f, typeMap):
         out.write('\tif (profile_event != NULL)\n')
         out.write('\t\tCLINTFUNC(clReleaseEvent)(profile_event);\n')
 
+
 def gen_func(out, f, typeMap):
     proto, name, r, args, core = f
     proto = pat_comment.sub(r'\1', proto)
+
+    """
+    Change [] -> *, because sometimes we have the following signature:
+        void *[] /* svm_pointers[] */
+    after comment fixing it'll be:
+        void *[] svm_pointers
+    it's the compilation error, so we need to fix it. This way is the simplest.
+    """
+    proto = string.replace(proto, "[]", "*")
+
     proto = pat_suffix.sub('', proto)
     proto = proto.replace(name, 'F(%s)' % name)
 
@@ -493,7 +555,8 @@ def gen_func(out, f, typeMap):
     out.write('\tclint_init();\n')
     out.write('\tclint_autopool_begin(&pool);\n')
     out.write('\tif (clint_get_config(CLINT_TRACE))\n')
-    out.write('\t\tclint_log(%s);\n' % string.join(['"%s\\n"' % fmt] + map(lambda a: gen_format_arg(a[0], a[1], typeMap, name, 0), args), ", "))
+    out.write('\t\tclint_log(%s);\n' % string.join(
+        ['"%s\\n"' % fmt] + map(lambda a: gen_format_arg(a[0], a[1], typeMap, name, 0), args), ", "))
     for a in args:
         check = gen_check_input_arg(a, args, name)
         if check:
@@ -517,12 +580,18 @@ def gen_func(out, f, typeMap):
         out.write('\t\tclint_log_abort();\n')
         out.write('\t}\n')
     if r != 'void' or args:
-        out_args = filter(lambda x: '*' in x[0] and (not 'const' in x[0]) and (x[0] != 'void *') and (x[1] != 'errcode_ret'), args)
+        out_args = filter(
+            lambda x: '*' in x[0] and (not 'const' in x[0]) and (not pat_void.match(x[0])) and (x[1] != 'errcode_ret'),
+            args)
         if r != 'void':
             out_args = [(r, 'retval')] + out_args
-        out_fmt = name + ' returned ' + string.join(map(lambda a: ((a[1] == 'retval') and gen_format_str(a[0], typeMap, name, 1)) or (a[1] + '=' + gen_format_str(string.strip(a[0][:-1]), typeMap, name, 1)), out_args), " ")
+        out_fmt = name + ' returned ' + string.join(map(
+            lambda a: ((a[1] == 'retval') and gen_format_str(a[0], typeMap, name, 1)) or (
+            a[1] + '=' + gen_format_str(string.strip(a[0][:-1]), typeMap, name, 1)), out_args), " ")
         out.write('\tif (clint_get_config(CLINT_TRACE))\n')
-        out.write('\t\tclint_log(%s);\n' % string.join(['"%s\\n"' % out_fmt] + map(lambda a: ((a[1] == 'retval') and 'retval') or gen_format_arg(a[0], a[1], typeMap, name, 1), out_args), ", "))
+        out.write('\t\tclint_log(%s);\n' % string.join(['"%s\\n"' % out_fmt] + map(
+            lambda a: ((a[1] == 'retval') and 'retval') or gen_format_arg(a[0], a[1], typeMap, name, 1), out_args),
+                                                       ", "))
     checks = ''
     if do_errcode:
         indent = '\t\t'
@@ -547,6 +616,11 @@ def gen_func(out, f, typeMap):
     out.write('}\n')
     out.write('\n')
 
+
+def fix_type(t):
+    return string.strip(string.replace(t, "[]", "*"))
+
+
 def scanFile(file, filename, funcs, typeMap, typeIncludes):
     text = file.read()
     protos = pat_func.findall(text)
@@ -563,7 +637,7 @@ def scanFile(file, filename, funcs, typeMap, typeIncludes):
             if func_ptr:
                 args.append((pat_func_ptr.sub(r'\3', func_ptr), pat_func_ptr.search(func_ptr).group(3)))
             else:
-                args.append((string.strip(a[1]), a[2]))
+                args.append((fix_type(a[1]), a[2]))
         funcs.append([proto, name, r, args, os.path.basename(filename) == 'cl.h'])
 
     type_name = None
@@ -628,7 +702,8 @@ def scanFile(file, filename, funcs, typeMap, typeIncludes):
                             append_type_map(typeMap, 'cl_context_properties', v)
                         elif v[0] in ('CL_1RGB_APPLE', 'CL_BGR1_APPLE', 'CL_ABGR_APPLE'):
                             append_type_map(typeMap, 'cl_channel_order', v)
-                        elif v[0] in ('CL_YCbYCr_APPLE', 'CL_CbYCrY_APPLE', 'CL_SFIXED14_APPLE', 'CL_BIASED_HALF_APPLE'):
+                        elif v[0] in (
+                        'CL_YCbYCr_APPLE', 'CL_CbYCrY_APPLE', 'CL_SFIXED14_APPLE', 'CL_BIASED_HALF_APPLE'):
                             append_type_map(typeMap, 'cl_channel_type', v)
                         elif 'CL_CONTEXT_OFFLINE_DEVICES_AMD' == v[0]:
                             append_type_map(typeMap, 'cl_context_info', v)
@@ -646,6 +721,7 @@ def scanFile(file, filename, funcs, typeMap, typeIncludes):
             includeName = os.path.basename(filename)
             if type_name and includeName != 'cl.h' and not includeName in typeIncludes:
                 typeIncludes.append(includeName)
+
 
 def gen_type_header(file, typeMap, typeIncludes):
     file.write('#ifndef _CLINT_OPENCL_TYPES_H_\n')
@@ -675,6 +751,7 @@ def gen_type_header(file, typeMap, typeIncludes):
     file.write('\n')
     gen_postfix(file)
     file.write('\n#endif\n')
+
 
 def gen_type_source(file, typeMap):
     gen_top(file)
@@ -732,7 +809,9 @@ def gen_type_source(file, typeMap):
         if not t in gen_format_struct_map:
             continue
         fmt = string.join([gen_format_str(v[0], typeMap, '', -1) for v in gen_format_struct_map[t]], ',')
-        args = string.join(['"%s"' % fmt] + [gen_format_arg(v[0], 'v->' + v[1], typeMap, '', -1) for v in gen_format_struct_map[t]], ', ')
+        args = string.join(
+            ['"%s"' % fmt] + [gen_format_arg(v[0], 'v->' + v[1], typeMap, '', -1) for v in gen_format_struct_map[t]],
+            ', ')
         file.write('const char *clint_string_%s(const %s *v)\n' % (gen_type_name(t), gen_type_arg(t)))
         file.write('{\n')
         file.write('\tif (v == NULL)\n')
@@ -740,6 +819,7 @@ def gen_type_source(file, typeMap):
         file.write('\treturn clint_string_sprintf(%s);\n' % args)
         file.write('}\n\n')
     gen_postfix(file)
+
 
 def gen_func_source(file, funcs, typeMap):
     file.write('#define CL_USE_DEPRECATED_OPENCL_1_0_APIS\n')
@@ -791,9 +871,11 @@ def gen_func_source(file, funcs, typeMap):
     file.write('\tdouble elapsed;\n')
     file.write('\terr = CLINTFUNC(clWaitForEvents)(1, &event);\n')
     file.write('\tif (!err) return err;\n')
-    file.write('\terr = CLINTFUNC(clGetEventProfilingInfo)(event, CL_PROFILING_COMMAND_END, sizeof(cl_ulong), &end, NULL);\n')
+    file.write(
+        '\terr = CLINTFUNC(clGetEventProfilingInfo)(event, CL_PROFILING_COMMAND_END, sizeof(cl_ulong), &end, NULL);\n')
     file.write('\tif (!err) return err;\n')
-    file.write('\terr = CLINTFUNC(clGetEventProfilingInfo)(event, CL_PROFILING_COMMAND_START, sizeof(cl_ulong), &start, NULL);\n')
+    file.write(
+        '\terr = CLINTFUNC(clGetEventProfilingInfo)(event, CL_PROFILING_COMMAND_START, sizeof(cl_ulong), &start, NULL);\n')
     file.write('\tif (!err) return err;\n')
     file.write('\telapsed = (double)(end - start) * 1.0e-9;\n')
     file.write('\tclint_log("PROFILE: %s %f\\n", name, elapsed);\n')
@@ -830,6 +912,7 @@ def gen_func_source(file, funcs, typeMap):
     file.write('\n')
     gen_postfix(file)
 
+
 funcs = []
 typeMap = {}
 typeIncludes = []
@@ -855,7 +938,8 @@ while i < len(sys.argv):
         continue
     if incdir and not os.path.isabs(filename):
         filename = os.path.join(incdir, filename)
-    if not os.path.exists(filename) and os.path.basename(filename) in ('cl_dx9_media_sharing.h', 'cl_d3d10.h', 'cl_d3d11.h'):
+    if not os.path.exists(filename) and os.path.basename(filename) in (
+    'cl_dx9_media_sharing.h', 'cl_d3d10.h', 'cl_d3d11.h'):
         continue
     file = open(filename, 'r')
     scanFile(file, filename, funcs, typeMap, typeIncludes)
