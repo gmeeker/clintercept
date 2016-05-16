@@ -179,8 +179,17 @@ void clint_log_init(const char *filename)
     if (fopen_s(&g_clint_log_fp, filename, "w") != 0) {
       g_clint_log_fp = NULL;
     }
+    /* so we can tell which log file came from which process */
+    char processName[MAX_PATH];
+    GetProcessImageFileNameA(GetCurrentProcess(), processName,
+                             sizeof(processName));
+    fprintf_s(g_clint_log_fp, "Process %ld, %s\n",
+              (long)clint_get_process_id(), processName);
 #else
     g_clint_log_fp = fopen(filename, "w");
+    /* so we can tell which log file came from which process */
+    fprintf(g_clint_log_fp, "Process %ld, %s\n",
+            (long)clint_get_process_id(), getprogname());
 #endif
     g_clint_log_fp_close = 1;
   }

@@ -27,7 +27,9 @@
 */
 
 #include "clint_config.h"
+#include "clint_data.h"
 #include "clint_log.h"
+#include "clint_thread.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -163,6 +165,7 @@ void clint_config_init(const ClintPathChar *path)
   char *buf = (char*)malloc(bufsize);
   char *key = (char*)malloc(bufsize);
   char *logfile = (char*)malloc(bufsize);
+  char *logfile_pid = NULL;
   char *strbuf;
   const char *logfile_ptr = NULL;
   int i;
@@ -275,6 +278,37 @@ void clint_config_init(const ClintPathChar *path)
                strcmp(logfile_ptr, "2") == 0) {
       clint_log_init_fp(stderr);
     } else {
+      char *hash_ptr = strchr(logfile_ptr, '#');
+      if (hash_ptr) {
+        int count = 0;
+        while (hash_ptr[count] == '#')
+          count++;
+        logfile_pid = (char*)malloc(bufsize);
+        /* Append the process ID to keep multiple
+           processes from stomping on each other's log files */
+#if defined(WIN32)
+        strcpy_s(logfile_pid, bufsize, logfile_ptr);
+#else
+        strcpy(logfile_pid, logfile_ptr);
+#endif
+        const char *logfile_end = hash_ptr + count;
+        hash_ptr = logfile_pid + (hash_ptr - (char*)logfile_ptr);
+        const char *fmt = "%ld";
+        if (count > 1)
+          fmt = clint_string_sprintf("%%0%dld", count);
+#if defined(WIN32)
+        sprintf_s(hash_ptr, bufsize - (hash_ptr - logfile_pid),
+                  fmt, (long)clint_get_process_id());
+#else
+        sprintf(hash_ptr, fmt, (long)clint_get_process_id());
+#endif
+#if defined(WIN32)
+        strcat_s(logfile_pid, bufsize, logfile_end);
+#else
+        strcat(logfile_pid, logfile_end);
+#endif
+        logfile_ptr = logfile_pid;
+      }
       clint_log_init(logfile_ptr);
     }
   }
@@ -282,6 +316,8 @@ void clint_config_init(const ClintPathChar *path)
   free(buf);
   free(key);
   free(logfile);
+  if (logfile_pid)
+    free(logfile_pid);
 
   /* Finally set any implied config items. */
   for (i = 0; i < CLINT_MAX; i++) {

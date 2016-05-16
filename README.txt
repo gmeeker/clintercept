@@ -49,6 +49,8 @@ Read configuration settings from <file>.
 CLINT_LOG_FILE <file>
 Write to <file> instead of standard error or NSLog.  <file> can also be 1 or stdout,
 or 2 or stderr.
+'#' will be replaced by the process id, or use multiple #'s to pad with zeros,
+e.g. clint_########.log
 
 CLINT_TRACE
 Log all OpenCL calls.

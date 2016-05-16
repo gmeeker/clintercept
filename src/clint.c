@@ -220,6 +220,7 @@ void clint_opencl_shutdown()
   if (clint_get_config(CLINT_LEAKS)) {
     clint_log_leaks_all();
   }
+  clint_log("clint_opencl_shutdown()");
   clint_data_shutdown();
   clint_log_shutdown();
 }
