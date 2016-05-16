@@ -58,6 +58,17 @@ void clint_tls_erase(const ClintTLS *tls)
   TlsSetValue(tls->key, NULL);
 }
 
+
+ClintProcessId clint_get_process_id()
+{
+  return GetCurrentProcessId();
+}
+
+ClintThreadId clint_get_thread_id()
+{
+  return GetCurrentThreadId();
+}
+
 #else
 
 void clint_tls_create(ClintTLS *tls)
@@ -83,6 +94,16 @@ void clint_tls_set(const ClintTLS *tls, void *value)
 void clint_tls_erase(const ClintTLS *tls)
 {
   pthread_setspecific(tls->key, NULL);
+}
+
+ClintProcessId clint_get_process_id()
+{
+  return getpid();
+}
+
+ClintThreadId clint_get_thread_id()
+{
+  return pthread_self();
 }
 
 #endif

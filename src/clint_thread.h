@@ -36,6 +36,7 @@
 #include <windows.h>
 #else
 #include <pthread.h>
+#include <unistd.h>
 #endif
 
 #ifdef __cplusplus
@@ -55,6 +56,17 @@ void clint_tls_delete(ClintTLS *tls);
 void *clint_tls_get(const ClintTLS *tls);
 void clint_tls_set(const ClintTLS *tls, void *value);
 void clint_tls_erase(const ClintTLS *tls);
+
+#if defined(WIN32)
+typedef DWORD ClintProcessId;
+typedef DWORD ClintThreadId;
+#else
+typedef pid_t ClintProcessId;
+typedef pthread_t ClintThreadId;
+#endif
+
+ClintProcessId clint_get_process_id();
+ClintThreadId clint_get_thread_id();
 
 #ifdef __cplusplus
 }
