@@ -1,6 +1,6 @@
 To build the library:
 
-git clone git://git.code.sf.net/p/clintercept/code clintercept
+git clone https://github.com/gmeeker/clintercept.git
 cd clintercept
 mkdir xcode
 cd xcode
