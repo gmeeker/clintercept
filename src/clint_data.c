@@ -100,7 +100,7 @@ const char *clint_string_shorten(const char *s)
   char *buf;
   const size_t maxlen = 32;
 
-  if (s != NULL && strlen(s) < maxlen)
+  if (s == NULL || strlen(s) < maxlen)
     return s;
   buf = clint_autopool_malloc(maxlen);
 #if defined(WIN32)
