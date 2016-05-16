@@ -12,13 +12,16 @@ pat_extern = re.compile(r'extern\s+')
 pat_name = re.compile(r'CL_API_CALL\s+(\w+)')
 pat_func_before_args = re.compile(r'^.*CL_API_CALL\s+\w+\(')
 
-pat_args = re.compile(r'(([a-zA-Z0-9_* ]+(?:\s*\[\])?)\s+(\w+)\s*[,)])|((\w+(\s*[*])?\s*\(\s*(CL_CALLBACK)?'
-                      r'\s*[*]\s*\w+\s*\)\s*\([^)]*\))\s*[,)])')
+pat_args = re.compile(r'(([a-zA-Z0-9_* ]+(?:\s*\[\])?)\s+(\w+)\s*[,)])|'
+                      r'((\w+(\s*[*])?\s*\(\s*(CL_CALLBACK)?\s*[*]\s*\w+\s*\)'
+                      r'\s*\([^)]*\))\s*[,)])')
 
 pat_func_ptr = re.compile(r'((CL_CALLBACK)?\s*[*])\s*(\w+)')
 pat_return = re.compile(
-    r'CL_API_ENTRY\s+(?:CL_[A-Z]*_PREFIX__VERSION[_0-9]*_DEPRECATED\s*)?(\w+(\s*[*])?)\s+CL_API_CALL')
+    r'CL_API_ENTRY\s+(?:CL_[A-Z]*_PREFIX__VERSION[_0-9]*_DEPRECATED\s*)?'
+    r'(\w+(\s*[*])?)\s+(__\w+\s+)?CL_API_CALL')
 pat_suffix = re.compile(r'\s+CL_[A-Z]*_SUFFIX__VERSION[_0-9A-Z]*')
+pat_hint = re.compile(r'__\w+\s*')
 pat_comment = re.compile(r'/[*]\s*(\w*).*?[*]/')
 pat_c_cpp_comment = re.compile(r'\s*(/[*].*[*]/)|(//.*\n?)')
 pat_type_comment = re.compile(r'\s*/[*]\s*(Additional\s+)?(cl_[a-z0-9_]+)\s*.*[*]/')
@@ -630,6 +633,7 @@ def scanFile(file, filename, funcs, typeMap, typeIncludes):
         argStr = pat_func_before_args.sub('', proto)
         argStr = pat_suffix.sub('', argStr)[:-1]
         argStr = pat_comment.sub(r'\1', argStr)
+        argStr = pat_hint.sub('', argStr)
         matches = pat_args.findall(argStr)
         args = []
         for a in matches:
@@ -637,7 +641,7 @@ def scanFile(file, filename, funcs, typeMap, typeIncludes):
             if func_ptr:
                 args.append((pat_func_ptr.sub(r'\3', func_ptr), pat_func_ptr.search(func_ptr).group(3)))
             else:
-                args.append((fix_type(a[1]), a[2]))
+                args.append((fix_type(pat_hint.sub('', a[1])), a[2]))
         funcs.append([proto, name, r, args, os.path.basename(filename) == 'cl.h'])
 
     type_name = None
