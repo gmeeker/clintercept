@@ -90,6 +90,7 @@ void clint_check_output_##type(cl_##type v, void *src, ClintObjType t ARGS) \
     COPYARGS;                                                       \
     if (!VALID_DYN_OBJ(obj)) {                                      \
       ClintObject_##type *obj2 = NULL;                              \
+      clint_purge_##type(v);                                        \
       CLINT_SPINLOCK_LOCK(g_clint_lock_##type);                     \
       obj2 = clint_tree_find_ClintObject_##type(g_clint_objects_##type, v); \
       CLINT_SPINLOCK_UNLOCK(g_clint_lock_##type);                   \
@@ -183,6 +184,26 @@ void clint_release_##type(cl_##type v)                              \
       free(obj);                                                    \
       CLINT_SPINLOCK_UNLOCK(g_clint_lock_##type);                   \
     }                                                               \
+  }                                                                 \
+}                                                                   \
+                                                                    \
+void clint_purge_##type(cl_##type v)                                \
+{                                                                   \
+  if (clint_get_config(CLINT_TRACK) &&                              \
+      clint_get_config(CLINT_ZOMBIES)) {                            \
+    ClintObject_##type *obj = NULL;                                 \
+    CLINT_SPINLOCK_LOCK(g_clint_lock_##type);                       \
+    obj = clint_tree_find_ClintObject_##type(g_clint_objects_##type, v); \
+    if (VALID_DYN_OBJ(obj)) {                                       \
+      if (obj->refCount == 0) {                                     \
+        clint_tree_erase_ClintObject_##type(&g_clint_objects_##type, obj); \
+        if (obj->stack) {                                           \
+          free(obj->stack);                                         \
+        }                                                           \
+        free(obj);                                                  \
+      }                                                             \
+    }                                                               \
+    CLINT_SPINLOCK_UNLOCK(g_clint_lock_##type);                     \
   }                                                                 \
 }                                                                   \
                                                                     \

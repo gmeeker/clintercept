@@ -76,6 +76,7 @@ void clint_check_input_##type(cl_##type v);                         \
 void clint_check_output_##type(cl_##type v, void *src, ClintObjType t ARGS); \
 void clint_check_input_##type##s(cl_uint num, const cl_##type *v);  \
 void clint_check_output_##type##s(cl_uint num, cl_##type *v, void *src, ClintObjType t ARGS); \
+void clint_purge_##type(cl_##type v);                               \
 void clint_retain_##type(cl_##type v);                              \
 void clint_release_##type(cl_##type v)                              \
 
