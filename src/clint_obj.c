@@ -210,11 +210,13 @@ void clint_purge_##type(cl_##type v)                                \
 static void clint_log_leaks_##type(ClintObject_##type *tree, cl_context context) \
 {                                                                   \
   ClintObject_##type *iter;                                         \
+  int zombies = clint_get_config(CLINT_ZOMBIES);                    \
   for (iter = clint_tree_first_ClintObject_##type(tree);            \
        iter;                                                        \
        iter = clint_tree_next_ClintObject_##type(iter)) {           \
     if (VALID_DYN_OBJ(iter) &&                                      \
-        (context == NULL || context == iter->context)) {            \
+        (context == NULL || context == iter->context) &&            \
+        (!zombies || iter->refCount > 0)) {                         \
       clint_log("Possibly leaked cl_" #type ": %p\n", iter->_key);  \
       if (iter->stack != NULL)                                      \
         clint_log("Created at:\n%s\n", iter->stack);                \
