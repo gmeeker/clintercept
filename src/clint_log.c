@@ -29,6 +29,7 @@
 #include "clint_log.h"
 #include "clint_config.h"
 #include "clint_opencl_types.h"
+#include "clint_thread.h"
 
 #include <stdio.h>
 

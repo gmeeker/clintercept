@@ -31,8 +31,9 @@ import string
 import sys
 
 pat_func = re.compile(
-    r'(extern\s+CL_API_ENTRY\s+(?:CL_[A-Z]*_PREFIX__VERSION[_0-9]*_DEPRECATED\s*)?[^;]*\s+CL_[A-Z]*'
-    r'_SUFFIX__VERSION[_0-9]*(?:_DEPRECATED)?\s*;)')
+    r'(extern\s+CL_API_ENTRY\s+(?:CL_[A-Z]*_PREFIX__VERSION[_0-9]*_DEPRECATED\s*)?[^;]*\s+'
+    r'CL_[A-Z]*_SUFFIX__VERSION[_0-9]*(?:_DEPRECATED)?\s*'
+    r'(?:CL_DEPRECATED\s*\([.0-9]*,\s*[.0-9]*\))?\s*;)')
 pat_extern = re.compile(r'extern\s+')
 pat_name = re.compile(r'CL_API_CALL\s+(\w+)')
 pat_func_before_args = re.compile(r'^.*CL_API_CALL\s+\w+\(')
@@ -381,7 +382,7 @@ def gen_check_output_arg(arg, args, funcName, pointers_only=1):
         if i > 0 and args[i - 1][0] in ('cl_uint', 'size_t') and has_prefix(args[i - 1][1], 'num_'):
             return 'clint_check_output_%s(%s)' % (
             type_name + 's', string.join((args[i - 1][1], arg[1]) + tuple(check_args), ", "))
-        return 'if (%s)\n\t\tclint_check_output_%s(%s)' % (
+        return 'if (%s)\n\t\t\tclint_check_output_%s(%s)' % (
         arg[1], type_name, string.join(('*' + arg[1],) + tuple(check_args), ", "))
     if pointers_only:
         return None
@@ -736,6 +737,10 @@ def scanFile(file, filename, funcs, typeMap, typeIncludes):
                             append_type_map(typeMap, 'cl_channel_type', v)
                         elif 'CL_CONTEXT_OFFLINE_DEVICES_AMD' == v[0]:
                             append_type_map(typeMap, 'cl_context_info', v)
+                        elif v[0].startswith('CL_QUEUE') and v[0].endswith('_APPLE'):
+                            append_type_map(typeMap, 'cl_queue_properties_APPLE', v)
+                        elif v[0] in ('CL_OBJECT_NAME_APPLE'):
+                            append_type_map(typeMap, 'cl_queue_properties_APPLE', v)
                         else:
                             sys.stderr.write('Ungrouped #define %s %s\n' % (m.group(1), m.group(2)))
                             continue
@@ -899,13 +904,13 @@ def gen_func_source(file, funcs, typeMap):
     file.write('\tcl_int err;\n')
     file.write('\tdouble elapsed;\n')
     file.write('\terr = CLINTFUNC(clWaitForEvents)(1, &event);\n')
-    file.write('\tif (!err) return err;\n')
+    file.write('\tif (err) return err;\n')
     file.write(
         '\terr = CLINTFUNC(clGetEventProfilingInfo)(event, CL_PROFILING_COMMAND_END, sizeof(cl_ulong), &end, NULL);\n')
-    file.write('\tif (!err) return err;\n')
+    file.write('\tif (err) return err;\n')
     file.write(
         '\terr = CLINTFUNC(clGetEventProfilingInfo)(event, CL_PROFILING_COMMAND_START, sizeof(cl_ulong), &start, NULL);\n')
-    file.write('\tif (!err) return err;\n')
+    file.write('\tif (err) return err;\n')
     file.write('\telapsed = (double)(end - start) * 1.0e-9;\n')
     file.write('\tclint_log("PROFILE: %s %f\\n", name, elapsed);\n')
     file.write('\treturn err;\n')

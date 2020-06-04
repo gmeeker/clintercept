@@ -88,9 +88,11 @@ void clint_check_output_##type(cl_##type v, void *src, ClintObjType t ARGS) \
       (ClintObject_##type*)malloc(sizeof(ClintObject_##type));      \
     memset(obj, 0, sizeof(ClintObject_##type));                     \
     COPYARGS;                                                       \
+    if (v) {                                                        \
+      clint_purge_##type(v);                                        \
+    }                                                               \
     if (!VALID_DYN_OBJ(obj)) {                                      \
       ClintObject_##type *obj2 = NULL;                              \
-      clint_purge_##type(v);                                        \
       CLINT_SPINLOCK_LOCK(g_clint_lock_##type);                     \
       obj2 = clint_tree_find_ClintObject_##type(g_clint_objects_##type, v); \
       CLINT_SPINLOCK_UNLOCK(g_clint_lock_##type);                   \
