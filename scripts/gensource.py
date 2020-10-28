@@ -96,32 +96,32 @@ def gen_postfix(out):
 
 
 def gen_pointers(out, f):
-    proto, name, r, args, core = f
+    proto, name, r, args, core, ext = f
     if core:
         out.write('static %s %s = NULL;\n' % (typedef_name(name), pointer_name(name)))
 
 
 def gen_define_pointers(out, f):
-    proto, name, r, args, core = f
+    proto, name, r, args, core, ext = f
     if core:
         out.write('#define %s %s\n' % (pointer_name(name), name))
 
 
 def gen_interpose(out, f):
-    proto, name, r, args, core = f
+    proto, name, r, args, core, ext = f
     if core:
         out.write('\t{ clint_%s, %s },\n' % (name, name))
 
 
 def gen_lookup(out, f):
-    proto, name, r, args, core = f
+    proto, name, r, args, core, ext = f
     if core:
         out.write(
             '\t\t\t%s = (%s)clint_opencl_sym(clint_dll, "%s");\n' % (pointer_name(name), typedef_name(name), name))
 
 
 def gen_typedef(out, f):
-    proto, name, r, args, core = f
+    proto, name, r, args, core, ext = f
     proto = pat_extern.sub('', proto)
     proto = pat_suffix.sub('', proto)
     proto = pat_name.sub('(CL_API_CALL *%s)' % typedef_name(name), proto)
@@ -399,23 +399,23 @@ def is_profile_all(name, args):
 
 
 def gen_func_has_errcode(f):
-    proto, name, r, args, core = f
+    proto, name, r, args, core, ext = f
     return (r == 'cl_int' or (args and args[-1][0] in ('cl_int *', 'int *')))
 
 
 def gen_func_errcode(f):
-    proto, name, r, args, core = f
+    proto, name, r, args, core, ext = f
     return ((r == 'cl_int') and 'retval') or '*' + args[-1][1]
 
 
 def gen_custom_func_decl(out, f, typeMap):
-    proto, name, r, args, core = f
+    proto, name, r, args, core, ext = f
     if is_profile_all(name, args):
         out.write('\tcl_event profile_event = NULL;\n')
 
 
 def gen_custom_func_begin(out, f, typeMap):
-    proto, name, r, args, core = f
+    proto, name, r, args, core, ext = f
     if 'Create' in name or 'Retain' in name or 'Release' in name:
         out.write('\tclint_opencl_enter();\n')
     if name == 'clSetKernelArg':
@@ -472,7 +472,7 @@ def gen_custom_func_begin(out, f, typeMap):
 
 
 def gen_custom_func_exit(out, f, typeMap):
-    proto, name, r, args, core = f
+    proto, name, r, args, core, ext = f
     if 'Create' in name or 'Retain' in name or 'Release' in name:
         out.write('\tclint_opencl_exit();\n')
     if name == 'clSetKernelArg':
@@ -554,8 +554,8 @@ def gen_custom_func_exit(out, f, typeMap):
         out.write('\t\tCLINTFUNC(clReleaseEvent)(profile_event);\n')
 
 
-def gen_func(out, f, typeMap):
-    proto, name, r, args, core = f
+def gen_func(out, f, typeMap, funcs=[]):
+    proto, name, r, args, core, ext = f
     proto = pat_comment.sub(r'\1', proto)
 
     """
@@ -597,7 +597,17 @@ def gen_func(out, f, typeMap):
         call_str = 'CLINTFUNC(%s)' % name
     else:
         call_str = '((%s)CLINTFUNC(%s)("%s"))' % (typedef_name(name), 'clGetExtensionFunctionAddress', name)
-    if r == 'void':
+    if name in ['clGetExtensionFunctionAddress', 'clGetExtensionFunctionAddressForPlatform']:
+        addr_str = '\tif (!func_name)\n'
+        addr_str += '\t\tretval = NULL;\n'
+        for func in funcs:
+            if func[5] and 'FunctionAddress' not in func[1]:
+                addr_str += '\telse if (strcmp(func_name, "%s") == 0)\n' % func[1]
+                addr_str += '\t\tretval = F(%s);\n' % func[1]
+        addr_str += '\telse\n'
+        addr_str += '\t\tretval = %s(%s);\n' % (call_str, call_args)
+        out.write(addr_str)
+    elif r == 'void':
         out.write('\t%s(%s);' % (call_str, call_args))
     else:
         out.write('\tretval = %s(%s);\n' % (call_str, call_args))
@@ -668,7 +678,17 @@ def scanFile(file, filename, funcs, typeMap, typeIncludes):
                 args.append((pat_func_ptr.sub(r'\3', func_ptr), pat_func_ptr.search(func_ptr).group(3)))
             else:
                 args.append((fix_type(pat_hint.sub('', a[1])), a[2]))
-        funcs.append([proto, name, r, args, os.path.basename(filename) == 'cl.h'])
+        suffix = pat_suffix.search(proto)
+        if suffix:
+            suffix = suffix.group(0)
+        else:
+            suffix = ''
+        ext = 'CL_EXT' in suffix
+        deprecated = '_DEPRECATED' in suffix
+        # 1.1 functions such as clCreateImage2D are marked CL_EXT_SUFFIX__VERSION_1_1_DEPRECATED
+        # but we should still export them
+        core = deprecated or not ext
+        funcs.append([proto, name, r, args, core, ext])
 
     type_name = None
     for line in string.split(text, '\n'):
@@ -931,8 +951,13 @@ def gen_func_source(file, funcs, typeMap):
     file.write('\t}\n')
     file.write('}\n')
     file.write('\n')
+    # clGetExtensionFunctionAddress needs to be defined last.
     for f in funcs:
-        gen_func(file, f, typeMap)
+        if 'FunctionAddress' not in f[1]:
+            gen_func(file, f, typeMap, funcs)
+    for f in funcs:
+        if 'FunctionAddress' in f[1]:
+            gen_func(file, f, typeMap, funcs)
     file.write('\n')
     file.write('#ifdef __APPLE__\n')
     file.write('__attribute__ ((section("__DATA, __interpose"))) struct {\n')

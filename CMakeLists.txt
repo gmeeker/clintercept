@@ -16,7 +16,7 @@ else()
   set(CLINT_LIBNAME "CLIntercept")
 endif()
 set(CMAKE_OSX_ARCHITECTURES x86_64)
-set(CMAKE_OSX_DEPLOYMENT_TARGET 10.7)
+set(CMAKE_OSX_DEPLOYMENT_TARGET 10.9)
 
 set(CLINT_OPENCL_HEADERS "cl.h;cl_ext.h" CACHE STRING "Headers to scan for OpenCL functions.")
 set(CLINT_USE_OPENGL ON CACHE BOOL "Support OpenCL/OpenGL sharing functions.")
